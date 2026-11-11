@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+html, body, #root { height: 100%; margin: 0; overflow: hidden; background: #0f172a; font-family: 'Baloo 2', system-ui, sans-serif; -webkit-user-select: none; user-select: none; }
+input { -webkit-user-select: text; user-select: text; }
+@layer components {
+  .btn { @apply rounded-xl border-b-4 px-4 py-2 font-extrabold text-white shadow-md transition active:translate-y-0.5 active:border-b-2 disabled:opacity-50; }
+  .btn-orange { @apply btn border-orange-700 bg-orange-500; }
+  .btn-blue { @apply btn border-blue-900 bg-blue-500; }
+  .btn-green { @apply btn border-green-800 bg-green-500; }
+  .btn-red { @apply btn border-red-800 bg-red-500; }
+  .field { @apply w-full rounded-lg border-2 border-blue-200 bg-white px-3 py-2 font-bold text-slate-800 outline-none focus:border-blue-500; }
+}
