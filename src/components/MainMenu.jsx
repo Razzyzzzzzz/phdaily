@@ -1,5 +1,5 @@
 import Title from './Title'
-import Avatar from './Avatar'
+import CharacterPreview from './CharacterPreview'
 
 // ---------- background art (pure SVG/CSS, walang image files) ----------
 const Cloud = ({ top, size = 1, duration, delay }) => (
@@ -43,6 +43,20 @@ function Jeep({ color = '#ef476f' }) {
   )
 }
 
+const Bird = ({ top, duration, delay, size = 1 }) => (
+  <div className="absolute left-0" style={{ top, animation: `elph-fly ${duration}s linear ${delay}s infinite` }}>
+    <svg viewBox="0 0 40 16" width={34 * size} height={14 * size} style={{ animation: 'elph-flap 0.45s ease-in-out infinite alternate', transformOrigin: '50% 100%' }}>
+      <path d="M2 12 Q11 -2 20 10 Q29 -2 38 12" fill="none" stroke="#1e3a8a" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  </div>
+)
+
+const Butterfly = ({ left, bottom, color, delay }) => (
+  <div className="absolute" style={{ left, bottom, animation: `elph-float 6s ease-in-out ${delay}s infinite alternate` }}>
+    <span className="block text-xl" style={{ filter: `drop-shadow(0 0 4px ${color})` }}>🦋</span>
+  </div>
+)
+
 function Scene() {
   return (
     <div className="elph-anim pointer-events-none absolute inset-0 overflow-hidden">
@@ -52,6 +66,9 @@ function Scene() {
         <div className="absolute -inset-2 animate-pulse rounded-full bg-yellow-200/50" />
         <div className="absolute inset-0 rounded-full bg-yellow-300 shadow-[0_0_40px_10px_rgba(253,224,71,0.55)]" />
       </div>
+      <Bird top="16%" duration={28} delay={-6} />
+      <Bird top="20%" duration={28} delay={-4.5} size={0.7} />
+      <Bird top="12%" duration={40} delay={-22} size={0.9} />
       {/* mga ulap */}
       <Cloud top="10%" duration={70} delay={-10} />
       <Cloud top="22%" size={0.8} duration={95} delay={-55} />
@@ -70,6 +87,9 @@ function Scene() {
       </div>
       <div className="absolute bottom-[calc(5%+6px)] left-0" style={{ animation: 'elph-drive 22s linear infinite' }}><Jeep color="#ef476f" /></div>
       <div className="absolute bottom-[calc(5%+2px)] left-0" style={{ animation: 'elph-drive 34s linear -14s infinite' }}><Jeep color="#06d6a0" /></div>
+      <Butterfly left="22%" bottom="24%" color="#f472b6" delay={0} />
+      <Butterfly left="72%" bottom="27%" color="#fde047" delay={-2} />
+      <Butterfly left="46%" bottom="22%" color="#60a5fa" delay={-4} />
       {/* puno ng niyog */}
       <Palm className="bottom-[14%] left-[2%] h-56 sm:h-80" />
       <Palm className="bottom-[16%] left-[13%] hidden h-40 sm:block" delay={1.2} />
@@ -87,10 +107,11 @@ export default function MainMenu({ user, look, onPlay, onCreate, onSettings, onE
       <Scene />
       <div className="relative z-10 flex flex-col items-center gap-6">
         <Title />
-        <div className="elph-anim flex items-end gap-6 rounded-3xl bg-white/25 p-4 shadow-xl ring-2 ring-white/50 backdrop-blur-sm">
-          <div className="hidden flex-col items-center pb-1 sm:flex">
-            <div className="scale-125" style={{ animation: 'elph-bob 3s ease-in-out infinite' }}><Avatar look={look} /></div>
-            <div className="mt-5 h-3 w-24 rounded-full bg-black/25 blur-[2px]" />
+        <div className="elph-anim flex items-center gap-4 rounded-3xl bg-gradient-to-b from-white/45 to-white/20 p-4 shadow-2xl ring-2 ring-white/60 backdrop-blur-md">
+          <div className="flex flex-col items-center">
+            <CharacterPreview look={look} className="h-56 w-36 cursor-grab active:cursor-grabbing sm:h-72 sm:w-52" />
+            <p className="-mt-1 max-w-[9rem] truncate rounded-full border-2 border-white/70 bg-blue-900 px-4 py-0.5 text-sm font-extrabold text-white shadow-md">{user}</p>
+            <p className="mt-1 text-[10px] font-bold text-blue-900/70">✋ Drag to rotate</p>
           </div>
           <div className="flex w-56 flex-col gap-3">
             <button className={`btn-orange py-3 text-2xl ${hover}`} style={{ animation: `elph-pop 0.5s 0.25s both, elph-pulse 2.2s 1s infinite` }} onClick={onPlay}>▶ Play</button>

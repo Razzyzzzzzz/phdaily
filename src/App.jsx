@@ -7,6 +7,8 @@ import Hud from './components/Hud'
 import Joystick from './components/Joystick'
 import InventoryPanel from './components/InventoryPanel'
 import ShopPanel from './components/ShopPanel'
+import FishingPanel from './components/FishingPanel'
+import ConfirmModal from './components/ConfirmModal'
 import JobPanel from './components/JobPanel'
 import HouseRoom from './components/HouseRoom'
 import { MapPanel, DialogPanel, MissionsPanel, ProfilePanel, PausePanel, SettingsPanel } from './components/MiscPanels'
@@ -25,6 +27,7 @@ export default function App() {
   const [panel, setPanel] = useState(null)
   const [nearby, setNearby] = useState(null)
   const [toast, setToast] = useState('')
+  const [confirm, setConfirm] = useState(null)
   const timer = useRef()
   const bridge = useRef({ vec: { x: 0, y: 0 }, paused: false }).current
   const saved = user ? read(saveKey(user)) : null
@@ -36,6 +39,7 @@ export default function App() {
     if (t.type === 'npc') return setPanel({ type: 'dialog', npc: t })
     if (t.id === 'house') return setPanel({ type: 'house' })
     if (t.id === 'terminal') return setPanel({ type: 'jobs' })
+    if (t.id === 'fishpond') return setPanel({ type: 'fishing' })
     setPanel({ type: 'shop', id: t.id })
   }
 
@@ -65,12 +69,35 @@ export default function App() {
     if (saved?.player) { dispatch({ type: 'LOAD', state: saved }); setScreen('game') } else setScreen('create')
   }
   const startCreator = () => {
-    if (saved?.player && !window.confirm('Creating a new character resets your progress. Continue?')) return
+    if (saved?.player) {
+      return setConfirm({
+        title: 'New Character?', message: 'Creating a new character resets your progress. Continue?',
+        confirmText: 'Yes, create new', onConfirm: () => setScreen('create'),
+      })
+    }
     setScreen('create')
   }
   const buy = (id) => {
     if (state.money < ITEMS[id].price) return notify('Not enough money!')
     dispatch({ type: 'BUY', id }); notify(`${ITEMS[id].emoji} Bought ${ITEMS[id].name}`)
+  }
+  const doActivity = (placeId, act) => {
+    if (state.money < (act.cost || 0)) return notify('Not enough money!')
+    if (act.energy < 0 && state.energy + act.energy < 0) return notify('Too tired!')
+    if (act.hunger < 0 && state.hunger + act.hunger < 0) return notify('Too hungry!')
+    dispatch({ type: 'ACTIVITY', act })
+    notify(`${act.emoji} ${act.name}${act.money ? ` +₱${act.money}` : ''}`)
+  }
+  const cast = () => {
+    if (state.energy < 5) { notify('Too tired to fish!'); return false }
+    dispatch({ type: 'ACTIVITY', act: { id: 'fish', cost: 0, energy: -5, hunger: -2, minutes: 10 } })
+    return true
+  }
+  const caught = (id) => { dispatch({ type: 'CATCH', id }); notify(`${ITEMS[id].emoji} Nahuli: ${ITEMS[id].name}!`) }
+  const sellFish = () => {
+    const total = Object.entries(state.inventory).reduce((t, [id, q]) => t + (ITEMS[id]?.loot ? ITEMS[id].price * q : 0), 0)
+    if (!total) return notify('Walang maibebenta!')
+    dispatch({ type: 'SELL_FISH' }); notify(`🪙 Sold for ₱${total}`)
   }
   const use = (id) => { dispatch({ type: 'USE', id }); notify(`${ITEMS[id].emoji} Used ${ITEMS[id].name}`) }
   const sleep = () => { dispatch({ type: 'SLEEP' }); close(); notify(`😴 Good morning! Day ${state.day + 1}`) }
@@ -109,7 +136,8 @@ export default function App() {
       )}
 
       {panel?.type === 'inventory' && <InventoryPanel inventory={state.inventory} onUse={use} onDrop={(id) => dispatch({ type: 'DROP', id })} onClose={close} />}
-      {panel?.type === 'shop' && <ShopPanel shopId={panel.id} money={state.money} onBuy={buy} onWork={() => setPanel({ type: 'jobs' })} onClose={close} />}
+      {panel?.type === 'shop' && <ShopPanel shopId={panel.id} money={state.money} energy={state.energy} hunger={state.hunger} onBuy={buy} onActivity={doActivity} onWork={() => setPanel({ type: 'jobs' })} onClose={close} />}
+      {panel?.type === 'fishing' && <FishingPanel state={state} onCast={cast} onCatch={caught} onSell={sellFish} onClose={close} />}
       {panel?.type === 'jobs' && <JobPanel here={here} state={state} notify={notify} onClose={close}
         onComplete={(id) => { dispatch({ type: 'WORK', id }); notify(`✅ +₱${JOBS[id].pay} earned`) }} />}
       {panel?.type === 'map' && <MapPanel onGo={travel} onClose={close} />}
@@ -120,7 +148,13 @@ export default function App() {
       {panel?.type === 'pause' && <PausePanel onResume={close} onClose={close} onMissions={() => setPanel({ type: 'missions' })}
         onProfile={() => setPanel({ type: 'profile' })} onSettings={() => setPanel({ type: 'settings' })} onMenu={() => { close(); setScreen('menu') }} />}
       {panel?.type === 'settings' && <SettingsPanel settings={settings} setSettings={setSettings} user={user} onLogout={logout}
-        onReset={() => { localStorage.removeItem(saveKey(user)); close(); setScreen('menu') }} onClose={close} />}
+        onReset={() => setConfirm({
+          title: 'Reset Progress?', message: 'Delete saved progress? This cannot be undone.',
+          confirmText: 'Yes, delete', onConfirm: () => { localStorage.removeItem(saveKey(user)); close(); setScreen('menu') },
+        })} onClose={close} />}
+      {confirm && (
+        <ConfirmModal {...confirm} onCancel={() => setConfirm(null)} onConfirm={() => { const go = confirm.onConfirm; setConfirm(null); go() }} />
+      )}
       {toast && <div className="absolute left-1/2 top-24 z-50 -translate-x-1/2 rounded-full bg-yellow-300 px-4 py-2 font-extrabold text-slate-900 shadow-lg">{toast}</div>}
     </div>
   )

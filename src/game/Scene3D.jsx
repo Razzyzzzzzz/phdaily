@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Billboard, Text } from '@react-three/drei'
 import * as THREE from 'three'
-import { WW, WH, PLACES, NPCS, LOCATIONS } from './world'
+import { WW, WH, PLACES, NPCS, LOCATIONS, ROAD2, VROAD, POND } from './world'
 import { weatherIndex } from '../data/gameData'
 
 // Simulation runs in the same pixel units as the old 2D game (x, z = old x, y).
@@ -18,18 +18,22 @@ const CRY_FLEE_SPEED = 200 // px/s (mabilis; ang player ay 165)
 const CRY_FLEE_TIME = 8   // seconds na tatakbo palayo bago mawala
 const CRY_RESPAWN = 20    // seconds na malayo ka bago siya bumalik sa bench niya
 const PARKED = [[1700, 1180, 3, false], [2020, 1260, 1, true], [2260, 1170, 0, false]]
-const PALMS = [[140, 900], [320, 900], [820, 900], [1020, 900], [140, 1500], [400, 1560], [760, 1560], [1040, 1500], [300, 1340], [860, 1340]]
-const POLES = []
-for (let x = 120; x < WW; x += 360) if (!(x > 1180 && x < 1460)) POLES.push(x)
+const PALMS = [[140, 900], [320, 900], [820, 900], [1020, 900], [140, 1500], [400, 1560], [760, 1560], [1040, 1500], [300, 1340], [860, 1340],
+  // new land (east lot, south, plaza)
+  [2500, 1500], [2900, 1500], [3300, 1500], [3700, 1500], [4100, 1500], [4500, 1500], [2600, 1300], [3000, 1250], [3600, 1250], [4300, 1250],
+  [400, 2500], [1000, 2620], [1700, 2420], [2050, 2600], [2750, 2650], [2900, 2750], [3950, 2750], [4400, 2600], [4650, 2300]]
+const POLES = [] // [x, zBase]
+for (const zb of [750, ROAD2.y + ROAD2.h + 30]) for (let x = 120; x < WW; x += 360) if (!(x > VROAD.x - 60 && x < VROAD.x + VROAD.w + 60)) POLES.push([x, zb])
 
 // ---------- collision (px) ----------
 const R = 11
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
 const BOXES = [
-  [1560, 820, 2200, 1020], // terminal building
+  [POND.x, POND.z, POND.x + POND.w, POND.z + POND.d], // tubig ng palaisdaan
+  ...PLACES.filter((pl) => pl.base > 600).map((pl) => [pl.x, pl.base - 200, pl.x + pl.w, pl.base]), // terminal, mall, police, gym, south row
   [516, 802, 524, 810], [636, 802, 644, 810], // mga poste ng "Parke" sign
 ]
-const BENCHES = [[430, 1180], [730, 1285]].map(([x, z]) => [x - 42, z - 17, x + 42, z + 17]) // mga bench sa park
+const BENCHES = [[430, 1180], [730, 1285], [2230, 2520], [2570, 2520]].map(([x, z]) => [x - 42, z - 17, x + 42, z + 17]) // mga bench sa park
 let DYN = [] // moving jeepneys (traffic + terminal jeepneys), refreshed every frame
 
 // ----- jeepneys at the terminal you can ride -----
@@ -43,8 +47,9 @@ const hitBox = (x, z, [a, b, c, d]) => {
 }
 const CIRCLES = [
   ...PALMS.map(([x, y]) => [x, y - 4, 8]),
-  ...POLES.map((x) => [x, 746, 6]),
+  ...POLES.map(([x, zb]) => [x, zb - 4, 6]),
   [580, 1225, 72], // fountain
+  [2400, 2450, 72], // south plaza fountain
 ]
 // free = true kapag nasa loob na ng bench (nakaupo o kakatayo pa lang) para makalabas
 const blocked = (x, z, free) => {
@@ -115,12 +120,45 @@ function Rect({ x, z, w, d, y = 0, h = 0.04, c }) {
 }
 
 // ---------- character ----------
+// toon outline (inverted hull): madilim na gilid para pumop ang 3D look
+const OUTLINE_MAT = new THREE.MeshBasicMaterial({ color: '#1b1b2a', side: THREE.BackSide })
+
+// capsule (bilugan ang dulo) para sa braso, binti at katawan
+function Cap({ p = [0, 0, 0], r = 0.2, l = 0.6, c = '#ffffff', s = [1, 1, 1], ol = false }) {
+  return (
+    <group position={p} scale={s}>
+      <mesh castShadow receiveShadow>
+        <capsuleGeometry args={[r, l, 4, 12]} />
+        <meshLambertMaterial color={c} />
+      </mesh>
+      {ol && (
+        <mesh scale={1.07}>
+          <capsuleGeometry args={[r, l, 4, 12]} />
+          <primitive object={OUTLINE_MAT} attach="material" dispose={null} />
+        </mesh>
+      )}
+    </group>
+  )
+}
+function Ball({ p = [0, 0, 0], r = 0.2, c = '#ffffff', s = [1, 1, 1] }) {
+  return (
+    <mesh position={p} scale={s} castShadow>
+      <sphereGeometry args={[r, 14, 12]} />
+      <meshLambertMaterial color={c} />
+    </mesh>
+  )
+}
+
+// chibi 3D character: malaking ulo, anime na mata (kumukurap), buhok na may bangs,
+// uniform (babae: ribbon + palda + medyas) / hoodie (lalaki)
 export const Character = forwardRef(function Character({ look, label, cry, bubble }, ref) {
   const fem = look.gender === 'female'
   const st = look.hairStyle ?? 0
   const body = useRef(), legL = useRef(), legR = useRef(), armL = useRef(), armR = useRef()
   const head = useRef(), tearL = useRef(), tearR = useRef(), bubbleRef = useRef()
   const textR = useRef(), bgR = useRef(), bdR = useRef(), lastTxt = useRef(bubble)
+  const eyeRefs = useRef([])
+  const blinkOff = useMemo(() => Math.random() * 3, [])
   useFrame(({ clock }, dt) => {
     const g = ref.current
     if (!g) return
@@ -130,6 +168,10 @@ export const Character = forwardRef(function Character({ look, label, cry, bubbl
     legL.current.rotation.x = sw; legR.current.rotation.x = -sw
     armL.current.rotation.x = -sw; armR.current.rotation.x = sw
     body.current.position.y = Math.abs(Math.sin(t)) * 0.12 * w
+    head.current.rotation.z = Math.sin(t * 0.5) * 0.05 * w // bahagyang indayog ng ulo
+    // kurap
+    const bl = (clock.elapsedTime + blinkOff) % 3.8 < 0.12 ? 0.1 : 1
+    eyeRefs.current.forEach((e) => { if (e) e.scale.y = bl })
     if (cry) {
       const tt = clock.elapsedTime
       const pose = !!g.userData.cry // nakatayong umiiyak (hindi tumatakbo)
@@ -160,7 +202,7 @@ export const Character = forwardRef(function Character({ look, label, cry, bubbl
         if (!m) return
         const run = w > 0.3 // mas marami/malaki ang luha kapag tumatakbo
         const ph = (tt * (run ? 3 : 1.5) + off) % 1
-        m.position.y = -0.08 - ph * 0.85
+        m.position.y = -0.12 - ph * 0.85
         m.scale.setScalar(on * (run ? 2.2 : 1.4) * (1 - ph * 0.5))
       })
       if (bubbleRef.current) {
@@ -175,7 +217,9 @@ export const Character = forwardRef(function Character({ look, label, cry, bubbl
       }
     }
   })
-  const pants = fem ? look.skin : '#333a4a'
+  const pants = fem ? look.skin : '#2b303c'
+  const skirt = useMemo(() => '#' + new THREE.Color(look.shirt).multiplyScalar(0.55).getHexString(), [look.shirt])
+  const shirtLight = useMemo(() => '#' + new THREE.Color(look.shirt).lerp(new THREE.Color('#ffffff'), 0.25).getHexString(), [look.shirt])
   const hairMat = { side: THREE.DoubleSide }
   return (
     <group ref={ref}>
@@ -183,56 +227,134 @@ export const Character = forwardRef(function Character({ look, label, cry, bubbl
         {/* legs */}
         {[[legL, -0.23], [legR, 0.23]].map(([lr, x]) => (
           <group key={x} ref={lr} position={[x, 1.2, 0]}>
-            <Box p={[0, -0.6, 0]} s={[0.38, 1.2, 0.42]} c={pants} />
-            <Box p={[0, -1.1, 0.1]} s={[0.42, 0.22, 0.62]} c="#111111" />
+            {fem ? (
+              <>
+                <Cap p={[0, -0.38, 0]} r={0.16} l={0.3} c={look.skin} />
+                <Cap p={[0, -0.82, 0]} r={0.175} l={0.34} c="#f8fafc" />
+              </>
+            ) : (
+              <Cap p={[0, -0.6, 0]} r={0.18} l={0.85} c={pants} />
+            )}
+            <Ball p={[0, -1.14, 0.1]} r={0.26} s={[0.95, 0.55, 1.55]} c={fem ? '#161616' : '#f1f5f9'} />
+            {!fem && <Ball p={[0, -1.24, 0.1]} r={0.26} s={[0.98, 0.18, 1.58]} c="#9ca3af" />}
           </group>
         ))}
         {/* torso */}
         {fem ? (
           <>
-            <Box p={[0, 1.88, 0]} s={[0.8, 0.95, 0.5]} c={look.shirt} />
-            <Cyl p={[0, 1.3, 0]} a={[0.42, 0.7, 0.62, 18]} c={look.shirt} />
+            <Cap p={[0, 1.95, 0]} r={0.38} l={0.3} c={look.shirt} s={[1.08, 1, 0.66]} ol />
+            <Cyl p={[0, 2.38, 0]} a={[0.36, 0.44, 0.1, 16]} c="#f8fafc" />
+            <mesh position={[0, 1.3, 0]} castShadow receiveShadow>
+              <cylinderGeometry args={[0.42, 0.78, 0.7, 12]} />
+              <meshLambertMaterial color={skirt} flatShading />
+            </mesh>
+            <Cyl p={[0, 0.97, 0]} a={[0.79, 0.79, 0.05, 12]} c="#f8fafc" />
+            {/* ribbon */}
+            <group position={[0, 2.2, 0.34]}>
+              <Ball p={[-0.14, 0, 0]} r={0.12} c="#dc2626" s={[1.3, 0.9, 0.6]} />
+              <Ball p={[0.14, 0, 0]} r={0.12} c="#dc2626" s={[1.3, 0.9, 0.6]} />
+              <Ball p={[0, 0, 0.02]} r={0.07} c="#b91c1c" />
+            </group>
           </>
         ) : (
-          <Box p={[0, 1.78, 0]} s={[1.0, 1.15, 0.55]} c={look.shirt} />
+          <>
+            <Cap p={[0, 1.82, 0]} r={0.44} l={0.4} c={look.shirt} s={[1.15, 1, 0.62]} ol />
+            <Cyl p={[0, 1.28, 0]} a={[0.5, 0.5, 0.14, 16]} c="#1f2937" />
+            {/* hoodie: hood sa likod, bulsa, tali */}
+            <Ball p={[0, 2.45, -0.3]} r={0.38} c={shirtLight} s={[1.25, 0.7, 0.7]} />
+            <Box p={[0, 1.55, 0.29]} s={[0.7, 0.3, 0.06]} c={shirtLight} />
+            <Cyl p={[-0.13, 2.18, 0.3]} a={[0.02, 0.02, 0.5, 6]} c="#f8fafc" />
+            <Cyl p={[0.13, 2.18, 0.3]} a={[0.02, 0.02, 0.5, 6]} c="#f8fafc" />
+          </>
         )}
         {/* arms */}
         {[[armL, -1], [armR, 1]].map(([ar, d]) => (
-          <group key={d} ref={ar} position={[d * (fem ? 0.53 : 0.65), 2.3, 0]}>
-            <Box p={[0, -0.22, 0]} s={[0.3, 0.46, 0.34]} c={look.shirt} />
-            <Box p={[0, -0.68, 0]} s={[0.26, 0.5, 0.3]} c={look.skin} />
+          <group key={d} ref={ar} position={[d * (fem ? 0.55 : 0.66), 2.3, 0]}>
+            <Cap p={[0, -0.2, 0]} r={0.16} l={0.18} c={look.shirt} />
+            <Cap p={[0, -0.58, 0]} r={0.125} l={0.3} c={fem ? look.skin : look.shirt} />
+            <Ball p={[0, -0.9, 0]} r={0.15} c={look.skin} />
           </group>
         ))}
-        {/* head */}
-        <group ref={head} position={[0, 2.95, 0]}>
-          <mesh castShadow>
-            <sphereGeometry args={[0.55, 20, 16]} />
+        {/* head (chibi: malaki) */}
+        <group ref={head} position={[0, 3.05, 0]}>
+          <mesh castShadow scale={[1, 0.96, 0.97]}>
+            <sphereGeometry args={[0.72, 28, 20]} />
             <meshLambertMaterial color={look.skin} />
           </mesh>
-          <mesh position={[-0.2, 0.05, 0.5]}><sphereGeometry args={[0.07, 8, 8]} /><meshBasicMaterial color="#111111" /></mesh>
-          <mesh position={[0.2, 0.05, 0.5]}><sphereGeometry args={[0.07, 8, 8]} /><meshBasicMaterial color="#111111" /></mesh>
+          <mesh scale={[1.05, 1.01, 1.02]}>
+            <sphereGeometry args={[0.72, 20, 14]} />
+            <primitive object={OUTLINE_MAT} attach="material" dispose={null} />
+          </mesh>
+          {/* ears */}
+          {[-1, 1].map((d) => <Ball key={d} p={[d * 0.7, -0.04, 0]} r={0.11} c={look.skin} s={[0.6, 1, 1]} />)}
+          {/* anime eyes + kilay */}
+          {[-1, 1].map((d) => (
+            <group key={d}>
+              <group ref={(e) => { eyeRefs.current[d < 0 ? 0 : 1] = e }} position={[d * 0.27, -0.02, 0.63]}>
+                <mesh scale={[1, 1.3, 0.45]}><sphereGeometry args={[0.15, 12, 12]} /><meshBasicMaterial color="#ffffff" /></mesh>
+                <mesh position={[0, -0.01, 0.05]} scale={[1, 1.2, 0.5]}><sphereGeometry args={[0.105, 12, 12]} /><meshBasicMaterial color="#2b1b12" /></mesh>
+                <mesh position={[0, 0, 0.08]} scale={[1, 1.2, 0.4]}><sphereGeometry args={[0.06, 10, 10]} /><meshBasicMaterial color="#000000" /></mesh>
+                <mesh position={[d * 0.03, 0.07, 0.1]}><sphereGeometry args={[0.035, 8, 8]} /><meshBasicMaterial color="#ffffff" /></mesh>
+                <mesh position={[-d * 0.03, -0.06, 0.1]}><sphereGeometry args={[0.018, 8, 8]} /><meshBasicMaterial color="#ffffff" /></mesh>
+              </group>
+              <mesh position={[d * 0.27, 0.3, 0.6]} rotation={[0, 0, cry ? -d * 0.3 : d * 0.08]}>
+                <boxGeometry args={[0.26, 0.05, 0.05]} /><meshBasicMaterial color={look.hair} />
+              </mesh>
+            </group>
+          ))}
+          {/* ilong + bibig */}
+          <Ball p={[0, -0.12, 0.7]} r={0.035} c={look.skin} />
+          <mesh position={[0, cry ? -0.4 : -0.32, 0.65]} rotation={[0, 0, cry ? 0 : Math.PI]}>
+            <torusGeometry args={[0.08, 0.02, 6, 12, Math.PI]} /><meshBasicMaterial color="#7a2e2e" />
+          </mesh>
           {cry && (
             <>
-              <mesh ref={tearL} position={[-0.2, -0.1, 0.52]}><sphereGeometry args={[0.07, 8, 8]} /><meshBasicMaterial color="#60c8ff" /></mesh>
-              <mesh ref={tearR} position={[0.2, -0.1, 0.52]}><sphereGeometry args={[0.07, 8, 8]} /><meshBasicMaterial color="#60c8ff" /></mesh>
+              <mesh ref={tearL} position={[-0.27, -0.12, 0.7]}><sphereGeometry args={[0.07, 8, 8]} /><meshBasicMaterial color="#60c8ff" /></mesh>
+              <mesh ref={tearR} position={[0.27, -0.12, 0.7]}><sphereGeometry args={[0.07, 8, 8]} /><meshBasicMaterial color="#60c8ff" /></mesh>
             </>
           )}
           {fem && (
             <>
-              <mesh position={[-0.3, -0.15, 0.45]} scale={[1, 0.6, 0.4]}><sphereGeometry args={[0.1, 8, 8]} /><meshBasicMaterial color="#f472b6" transparent opacity={0.6} /></mesh>
-              <mesh position={[0.3, -0.15, 0.45]} scale={[1, 0.6, 0.4]}><sphereGeometry args={[0.1, 8, 8]} /><meshBasicMaterial color="#f472b6" transparent opacity={0.6} /></mesh>
+              <mesh position={[-0.42, -0.16, 0.55]} scale={[1, 0.6, 0.4]}><sphereGeometry args={[0.12, 8, 8]} /><meshBasicMaterial color="#f472b6" transparent opacity={0.6} /></mesh>
+              <mesh position={[0.42, -0.16, 0.55]} scale={[1, 0.6, 0.4]}><sphereGeometry args={[0.12, 8, 8]} /><meshBasicMaterial color="#f472b6" transparent opacity={0.6} /></mesh>
             </>
           )}
-          {/* hair */}
-          <mesh castShadow rotation={[-0.55, 0, 0]} position={[0, 0.02, -0.04]} scale={st === 1 ? [1, 0.95, 1] : 1}>
-            <sphereGeometry args={[st === 1 ? 0.7 : 0.6, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2]} />
+          {/* hair: takip sa ulo + bangs */}
+          <mesh castShadow rotation={[-0.45, 0, 0]} position={[0, 0.04, -0.06]}>
+            <sphereGeometry args={[0.8, 24, 14, 0, Math.PI * 2, 0, Math.PI * 0.55]} />
             <meshLambertMaterial color={look.hair} {...hairMat} />
           </mesh>
-          {st === 2 && <Box p={[0, -0.75, -0.38]} s={[1.05, 1.9, 0.38]} c={look.hair} />}
+          {Array.from({ length: 6 }, (_, i) => {
+            const bx = (i - 2.5) * 0.22
+            const by = 0.46 - Math.abs(bx) * 0.25
+            const bz = Math.sqrt(Math.max(0.05, 0.5184 - by * by - bx * bx)) + 0.03
+            return <Ball key={i} p={[bx, by, bz]} r={0.2} c={look.hair} s={[1.1, 0.8, 0.7]} />
+          })}
+          {/* style 0: maikli (lalaki: matulis na spikes) */}
+          {st === 0 && !fem && Array.from({ length: 8 }, (_, k) => (
+            <group key={k} rotation={[0, 0.9 + k * ((Math.PI * 2 - 1.8) / 7), 0]}>
+              <mesh position={[0, 0.62, 0.3]} rotation={[0.8, 0, 0]} castShadow>
+                <coneGeometry args={[0.2, 0.55, 8]} /><meshLambertMaterial color={look.hair} />
+              </mesh>
+            </group>
+          ))}
+          {/* style 1: bushy */}
+          {st === 1 && [[-0.4, 0.62, 0], [0, 0.78, 0], [0.4, 0.62, 0], [-0.62, 0.3, -0.2], [0.62, 0.3, -0.2]].map(([hx, hy, hz]) => (
+            <Ball key={hx + '_' + hy} p={[hx, hy, hz]} r={0.3} c={look.hair} />
+          ))}
+          {/* style 2: mahaba */}
+          {st === 2 && (
+            <>
+              <Cap p={[0, -0.95, -0.4]} r={0.55} l={1.2} c={look.hair} s={[1.25, 1, 0.5]} />
+              <Cap p={[-0.68, -0.55, 0.12]} r={0.13} l={0.9} c={look.hair} />
+              <Cap p={[0.68, -0.55, 0.12]} r={0.13} l={0.9} c={look.hair} />
+            </>
+          )}
+          {/* babaeng maikli/bushy: shoulder-length na gilid */}
           {fem && st !== 2 && (
             <>
-              <Box p={[-0.5, -0.35, -0.08]} s={[0.2, 0.9, 0.38]} c={look.hair} />
-              <Box p={[0.5, -0.35, -0.08]} s={[0.2, 0.9, 0.38]} c={look.hair} />
+              <Cap p={[-0.68, -0.35, -0.05]} r={0.14} l={0.7} c={look.hair} />
+              <Cap p={[0.68, -0.35, -0.05]} r={0.14} l={0.7} c={look.hair} />
             </>
           )}
         </group>
@@ -253,7 +375,7 @@ export const Character = forwardRef(function Character({ look, label, cry, bubbl
         </group>
       )}
       {label && (
-        <Billboard position={[0, 4.5, 0]}>
+        <Billboard position={[0, 4.7, 0]}>
           <Text fontSize={0.5} color="#ffffff" outlineWidth={0.07} outlineColor="#1e3a8a" anchorX="center" anchorY="middle">{label}</Text>
         </Billboard>
       )}
@@ -347,14 +469,112 @@ function Lamp({ p, s }) {
 }
 
 // ---------- world pieces ----------
+// ---------- dagdag na palamuti para sa bawat espesyal na lugar ----------
+function Flag({ x, z }) {
+  return (
+    <group position={[x, 0, z]}>
+      <Cyl p={[0, 5, 0]} a={[0.08, 0.1, 10, 8]} c="#d1d5db" />
+      <Box p={[0.95, 9.2, 0]} s={[1.9, 0.55, 0.06]} c="#0038a8" cast={false} />
+      <Box p={[0.95, 8.65, 0]} s={[1.9, 0.55, 0.06]} c="#ce1126" cast={false} />
+      <Box p={[0.95, 8.9, 0.02]} s={[0.5, 1.1, 0.06]} c="#ffffff" cast={false} />
+    </group>
+  )
+}
+function Decor({ p }) {
+  const cx = (p.x + p.w / 2) * S, zf = p.base * S, W = p.w * S
+  const roofY = 10.4, zr = zf - 4.75
+  switch (p.id) {
+    case 'hospital':
+      return (
+        <group>
+          <Box p={[cx, roofY + 1.7, zr]} s={[0.9, 3, 0.5]} c="#dc2626" />
+          <Box p={[cx, roofY + 1.7, zr]} s={[3, 0.9, 0.5]} c="#dc2626" />
+          <Box p={[cx, 8.1, zf + 0.12]} s={[W, 0.25, 0.1]} c="#dc2626" cast={false} />
+        </group>
+      )
+    case 'church':
+      return (
+        <group>
+          <Box p={[cx, roofY + 2.8, zr]} s={[3.6, 5.6, 3.6]} c="#e7e5e4" />
+          <mesh position={[cx, roofY + 7.2, zr]} rotation-y={Math.PI / 4} castShadow><coneGeometry args={[2.9, 3.6, 4]} /><meshLambertMaterial color="#78350f" /></mesh>
+          <Box p={[cx, roofY + 10.3, zr]} s={[0.3, 2, 0.3]} c="#fcd116" />
+          <Box p={[cx, roofY + 10.6, zr]} s={[1.2, 0.3, 0.3]} c="#fcd116" />
+          <mesh position={[cx, roofY + 3.4, zr + 1.85]}><boxGeometry args={[1.2, 2.4, 0.1]} /><primitive object={WINDOW_MAT} attach="material" dispose={null} /></mesh>
+        </group>
+      )
+    case 'police':
+      return (
+        <group>
+          <Box p={[cx, 8.1, zf + 0.12]} s={[W, 0.3, 0.1]} c="#1e3a8a" cast={false} />
+          <Box p={[cx - 0.8, roofY + 0.45, zr]} s={[1.4, 0.5, 0.8]} c="#ef4444" emissive="#ef4444" emissiveIntensity={0.6} />
+          <Box p={[cx + 0.8, roofY + 0.45, zr]} s={[1.4, 0.5, 0.8]} c="#3b82f6" emissive="#3b82f6" emissiveIntensity={0.6} />
+        </group>
+      )
+    case 'school':
+      return <Flag x={(p.x + p.w - 30) * S} z={zf + 2.6} />
+    case 'barangay':
+      return <Flag x={(p.x + p.w - 20) * S} z={zf + 2.6} />
+    case 'gym':
+      return (
+        <group>
+          <mesh position={[cx, roofY + 1.4, zr]} castShadow><sphereGeometry args={[1.5, 16, 12]} /><meshLambertMaterial color="#f97316" /></mesh>
+          <mesh position={[cx, roofY + 1.4, zr]} rotation-x={Math.PI / 2}><torusGeometry args={[1.5, 0.05, 6, 20]} /><meshBasicMaterial color="#1f2937" /></mesh>
+          <Box p={[cx, 8.1, zf + 0.12]} s={[W, 0.3, 0.1]} c="#f97316" cast={false} />
+        </group>
+      )
+    case 'mall':
+      return (
+        <group>
+          <Box p={[cx, roofY + 2, zr]} s={[W * 0.45, 3, 0.6]} c="#4c1d95" />
+          <Text position={[cx, roofY + 2, zr + 0.34]} fontSize={1.5} color="#fde047" anchorX="center" anchorY="middle">MALL</Text>
+        </group>
+      )
+    case 'bakery':
+      return (
+        <mesh position={[cx, roofY + 1, zr]} scale={[2.2, 1.1, 1.2]} castShadow><sphereGeometry args={[1, 14, 10]} /><meshLambertMaterial color="#d97706" /></mesh>
+      )
+    case 'library':
+      return (
+        <group>
+          {['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7'].map((c, i) => (
+            <Box key={c} p={[cx - 1.6 + i * 0.8, roofY + 1 + (i % 2) * 0.2, zr]} s={[0.6, 1.8 + (i % 3) * 0.3, 1.2]} c={c} />
+          ))}
+        </group>
+      )
+    case 'barber':
+      return (
+        <group position={[(p.door - 70) * S, 0, zf + 1.2]}>
+          {[0, 1, 2, 3, 4, 5].map((i) => <Cyl key={i} p={[0, 0.6 + i * 0.6, 0]} a={[0.32, 0.32, 0.6, 12]} c={i % 2 ? '#ffffff' : '#dc2626'} />)}
+          <Cyl p={[0, 4.1, 0]} a={[0.4, 0.4, 0.25, 12]} c="#3b82f6" />
+        </group>
+      )
+    case 'hardware':
+      return (
+        <group position={[(p.door + 90) * S, 0, zf + 1.4]}>
+          <Box p={[0, 0.5, 0]} s={[1.4, 1, 1.4]} c="#b45309" />
+          <Box p={[0.3, 1.45, 0]} s={[1.2, 0.9, 1.2]} c="#d97706" />
+          <Box p={[-1.7, 0.4, 0.2]} s={[1.2, 0.8, 1.2]} c="#92400e" />
+        </group>
+      )
+    default:
+      return null
+  }
+}
+
 function Building({ p }) {
   const zf = p.base * S
   const cx = (p.x + p.w / 2) * S
+  const W = p.w * S
   return (
     <group>
-      <Box p={[cx, 4.5, zf - 5]} s={[p.w * S, 9, 10]} c={p.color} />
+      <Box p={[cx, 4.5, zf - 5]} s={[W, 9, 10]} c={p.color} />
+      {/* pundasyon at cornice */}
+      <Box p={[cx, 0.35, zf + 0.06]} s={[W + 0.2, 0.7, 0.3]} c="#6b7280" />
+      <Box p={[cx, 8.75, zf + 0.1]} s={[W + 0.3, 0.4, 0.5]} c="#f8fafc" />
+      {/* bubong */}
       <Box p={[cx, 9.3, zf - 4.75]} s={[(p.w + 20) * S, 1.4, 10.5]} c={p.roof} />
-      <Text position={[cx, 9.3, zf + 0.52]} fontSize={0.95} color="#ffffff" outlineWidth={0.05} outlineColor="#00000055" anchorX="center" anchorY="middle">{p.label}</Text>
+      <Box p={[cx, 10.15, zf - 4.75]} s={[W - 1, 0.5, 7]} c={p.roof} />
+      <Text position={[cx, 9.3, zf + 0.52]} fontSize={0.95} color="#ffffff" outlineWidth={0.05} outlineColor="#000000" outlineOpacity={0.4} anchorX="center" anchorY="middle">{p.label}</Text>
       {[p.x + 28, p.x + p.w - 98].map((wx) => {
         const wcx = (wx + 35) * S
         return (
@@ -363,41 +583,70 @@ function Building({ p }) {
             <mesh position={[wcx, 6.25, zf + 0.1]}><boxGeometry args={[70 * S, 2.7, 0.1]} /><primitive object={WINDOW_MAT} attach="material" dispose={null} /></mesh>
             <Box p={[wcx, 6.25, zf + 0.15]} s={[4 * S, 2.7, 0.08]} c="#ffffff" />
             <Box p={[wcx, 6.3, zf + 0.15]} s={[70 * S, 4 * S, 0.08]} c="#ffffff" />
+            {/* sill + shutters */}
+            <Box p={[wcx, 4.6, zf + 0.25]} s={[78 * S + 0.5, 0.18, 0.5]} c="#e5e7eb" />
+            <Box p={[wcx - 2.15, 6.25, zf + 0.12]} s={[0.35, 3.1, 0.12]} c={p.roof} />
+            <Box p={[wcx + 2.15, 6.25, zf + 0.12]} s={[0.35, 3.1, 0.12]} c={p.roof} />
           </group>
         )
       })}
+      {/* pinto: frame, bintana, hakbang */}
+      <Box p={[p.door * S, 2.75, zf + 0.06]} s={[3.5, 5.5, 0.2]} c="#f8fafc" />
       <Box p={[p.door * S, 2.6, zf + 0.12]} s={[3, 5.2, 0.3]} c="#4a2c17" />
+      <mesh position={[p.door * S, 3.7, zf + 0.29]}><boxGeometry args={[1.6, 1.5, 0.06]} /><primitive object={WINDOW_MAT} attach="material" dispose={null} /></mesh>
+      <Box p={[p.door * S, 0.12, zf + 0.7]} s={[4, 0.24, 1.3]} c="#d6d3d1" />
       <mesh position={[(p.door + 20) * S, 2.6, zf + 0.35]}><sphereGeometry args={[0.15, 8, 8]} /><meshLambertMaterial color="#fcd116" /></mesh>
       {p.awning && (
         <>
           {Array.from({ length: 10 }, (_, i) => (
-            <Box key={i} p={[(p.door - 100 + i * 20 + 10) * S, 5.2, zf + 0.95]} s={[1, 0.12, 1.9]} r={[0.3, 0, 0]} c={i % 2 ? '#ffffff' : '#d62828'} />
+            <group key={i}>
+              <Box p={[(p.door - 100 + i * 20 + 10) * S, 5.2, zf + 0.95]} s={[1, 0.12, 1.9]} r={[0.3, 0, 0]} c={i % 2 ? '#ffffff' : '#d62828'} />
+              <Box p={[(p.door - 100 + i * 20 + 10) * S, 4.78, zf + 1.9]} s={[1, 0.3, 0.06]} c={i % 2 ? '#ffffff' : '#d62828'} />
+            </group>
           ))}
           <Box p={[(p.door - 100) * S, 2.4, zf + 1.7]} s={[0.15, 4.8, 0.15]} c="#4b5563" />
           <Box p={[(p.door + 100) * S, 2.4, zf + 1.7]} s={[0.15, 4.8, 0.15]} c="#4b5563" />
         </>
       )}
+      <Decor p={p} />
       {/* yellow entrance marker */}
-      <Box p={[p.door * S, p.base < 600 ? 0.17 : 0.09, (p.base + 27) * S]} s={[1.8, 0.02, 0.5]} c="#fcd116" cast={false} />
+      <Box p={[p.door * S, p.base < 600 || p.base > 2000 ? 0.17 : 0.09, (p.base + 27) * S]} s={[1.8, 0.02, 0.5]} c="#fcd116" cast={false} />
     </group>
   )
 }
 
+// pakurbang puno ng niyog: mga segment ng trunk, 9 na dahon na nakalaylay, bunga
+const PALM_PTS = Array.from({ length: 7 }, (_, i) => [0.035 * i * i, i * 1.4])
 function Palm({ x, z }) {
   return (
     <group position={[x * S, 0, z * S]}>
-      <Cyl p={[0, 4.25, 0]} a={[0.25, 0.4, 8.5, 10]} c="#7c4a21" />
-      <group position={[0, 8.5, 0]}>
-        {Array.from({ length: 7 }, (_, k) => (
-          <group key={k} rotation={[0, (k * Math.PI * 2) / 7, 0]}>
-            <mesh position={[1.7, -0.15, 0]} rotation={[0, 0, -0.45]} scale={[1, 0.12, 0.42]} castShadow>
-              <sphereGeometry args={[1.9, 10, 8]} />
-              <meshLambertMaterial color="#2f9e44" />
+      <Cyl p={[0, 0.25, 0]} a={[0.55, 0.65, 0.5, 10]} c="#7c4a21" />
+      {PALM_PTS.slice(0, 6).map(([px, py], i) => {
+        const [nx, ny] = PALM_PTS[i + 1]
+        const dx = nx - px, dy = ny - py, len = Math.hypot(dx, dy)
+        return (
+          <mesh key={i} position={[(px + nx) / 2, (py + ny) / 2, 0]} rotation={[0, 0, -Math.atan2(dx, dy)]} castShadow receiveShadow>
+            <cylinderGeometry args={[0.36 - i * 0.03, 0.4 - i * 0.03, len + 0.08, 9]} />
+            <meshLambertMaterial color={i % 2 ? '#8a5a2b' : '#7c4a21'} />
+          </mesh>
+        )
+      })}
+      <group position={[PALM_PTS[6][0], PALM_PTS[6][1], 0]}>
+        {Array.from({ length: 9 }, (_, k) => (
+          <group key={k} rotation={[0, (k * Math.PI * 2) / 9 + 0.2, 0]}>
+            <mesh position={[1.4, 0.05, 0]} rotation={[0, 0, -0.25]} scale={[1, 0.1, 0.38]} castShadow>
+              <sphereGeometry args={[1.6, 10, 8]} />
+              <meshLambertMaterial color={k % 2 ? '#2f9e44' : '#38a84e'} />
+            </mesh>
+            <mesh position={[3.0, -0.5, 0]} rotation={[0, 0, -0.85]} scale={[1, 0.1, 0.34]} castShadow>
+              <sphereGeometry args={[1.25, 10, 8]} />
+              <meshLambertMaterial color={k % 2 ? '#278a3b' : '#2f9e44'} />
             </mesh>
           </group>
         ))}
-        <mesh position={[-0.25, -0.3, 0]}><sphereGeometry args={[0.28, 8, 8]} /><meshLambertMaterial color="#7c4a21" /></mesh>
-        <mesh position={[0.25, -0.3, 0.1]}><sphereGeometry args={[0.28, 8, 8]} /><meshLambertMaterial color="#7c4a21" /></mesh>
+        {[[0.3, -0.35, 0.1], [-0.25, -0.3, 0.15], [0, -0.4, -0.3]].map(([nx, ny, nz]) => (
+          <mesh key={nx} position={[nx, ny, nz]} castShadow><sphereGeometry args={[0.3, 10, 10]} /><meshLambertMaterial color="#6b3f1d" /></mesh>
+        ))}
       </group>
     </group>
   )
@@ -406,10 +655,18 @@ function Palm({ x, z }) {
 function Bench({ x, z }) {
   return (
     <group position={[x * S, 0, z * S]}>
-      <Box p={[0, 1.2, 0]} s={[4, 0.35, 1.4]} c="#8b5a2b" />
-      <Box p={[0, 2.1, -0.6]} s={[4, 0.9, 0.25]} c="#8b5a2b" />
-      <Box p={[-1.7, 0.6, 0]} s={[0.3, 1.2, 1.2]} c="#4a2c17" />
-      <Box p={[1.7, 0.6, 0]} s={[0.3, 1.2, 1.2]} c="#4a2c17" />
+      {/* upuan (slats) */}
+      {[-0.45, 0, 0.45].map((dz) => <Box key={dz} p={[0, 1.25, dz]} s={[4.2, 0.14, 0.36]} c="#a0692f" />)}
+      {/* sandalan */}
+      {[1.55, 1.95, 2.35].map((y, i) => <Box key={y} p={[0, y, -0.68 - i * 0.04]} s={[4.2, 0.28, 0.1]} c="#a0692f" r={[-0.12, 0, 0]} />)}
+      {/* metal na frame + armrest */}
+      {[-1, 1].map((d) => (
+        <group key={d}>
+          <Box p={[d * 1.85, 0.62, 0]} s={[0.16, 1.24, 1.2]} c="#374151" />
+          <Box p={[d * 1.95, 1.75, -0.6]} s={[0.14, 1.5, 0.14]} c="#374151" />
+          <Box p={[d * 1.95, 1.7, 0.1]} s={[0.14, 0.14, 1.3]} c="#374151" />
+        </group>
+      ))}
     </group>
   )
 }
@@ -418,9 +675,11 @@ function Fountain({ x, z }) {
   return (
     <group position={[x * S, 0, z * S]}>
       <Cyl p={[0, 0.7, 0]} a={[3.5, 3.6, 1.4, 28]} c="#bdb8b4" />
+      <mesh position={[0, 1.4, 0]} rotation-x={Math.PI / 2} castShadow><torusGeometry args={[3.5, 0.2, 8, 36]} /><meshLambertMaterial color="#cfcac6" /></mesh>
       <Cyl p={[0, 1.4, 0]} a={[3.2, 3.2, 0.06, 28]} c="#38bdf8" />
       <Cyl p={[0, 2.6, 0]} a={[0.5, 0.6, 3.2, 12]} c="#bdb8b4" />
       <Cyl p={[0, 4.2, 0]} a={[1.8, 1.0, 0.5, 20]} c="#bdb8b4" />
+      <mesh position={[0, 4.45, 0]} rotation-x={Math.PI / 2}><torusGeometry args={[1.8, 0.1, 6, 24]} /><meshLambertMaterial color="#cfcac6" /></mesh>
       <mesh position={[0, 4.9, 0]}><sphereGeometry args={[0.5, 12, 12]} /><meshLambertMaterial color="#bae6fd" /></mesh>
     </group>
   )
@@ -431,9 +690,19 @@ function Jeep({ color }) {
     <group>
       <Box p={[0, 0.95, 0]} s={[5.6, 1, 2.6]} c={color} />
       <Box p={[0, 0.75, 0]} s={[5.62, 0.18, 2.62]} c="#fcd116" />
+      {/* asul na guhit sa gilid */}
+      <Box p={[0, 1.3, 1.31]} s={[5.4, 0.16, 0.02]} c="#0038a8" />
+      <Box p={[0, 1.3, -1.31]} s={[5.4, 0.16, 0.02]} c="#0038a8" />
       <Box p={[0, 1.73, 0]} s={[4.7, 0.55, 2.4]} c="#bfe9ff" transparent opacity={0.4} />
       {[-2, -0.7, 0.7, 2].map((x) => <Box key={x} p={[x, 1.73, 0]} s={[0.14, 0.56, 2.5]} c={color} />)}
       <Box p={[0, 2.06, 0]} s={[4.9, 0.14, 2.7]} c={color} />
+      {/* luggage rack */}
+      <Box p={[-0.2, 2.2, 0]} s={[3.6, 0.06, 2.2]} c="#9ca3af" />
+      {/* bumper, grille, visor */}
+      <Box p={[2.9, 0.55, 0]} s={[0.18, 0.28, 2.5]} c="#d1d5db" />
+      <Box p={[-2.9, 0.55, 0]} s={[0.18, 0.28, 2.5]} c="#d1d5db" />
+      <Box p={[2.82, 1.0, 0]} s={[0.06, 0.4, 1.1]} c="#111111" />
+      <Box p={[2.55, 2.2, 0]} s={[0.7, 0.08, 2.7]} c="#fcd116" />
       <Lamp p={[2.82, 0.95, 0.8]} s={[0.1, 0.3, 0.4]} />
       <Lamp p={[2.82, 0.95, -0.8]} s={[0.1, 0.3, 0.4]} />
       {[[-1.9, 1.25], [1.9, 1.25], [-1.9, -1.25], [1.9, -1.25]].map(([x, z]) => (
@@ -446,11 +715,41 @@ function Jeep({ color }) {
   )
 }
 
+// mga bulaklak sa parke (nakapirming posisyon, hindi tumatama sa daan, fountain, bench, palm)
+const FLOWERS = (() => {
+  const out = []
+  let s = 7
+  const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647
+  while (out.length < 70) {
+    const x = 90 + rnd() * 1060, z = 830 + rnd() * 790
+    if (z > 1170 && z < 1270) continue
+    if (x > 530 && x < 630) continue
+    if (Math.hypot(x - 580, z - 1225) < 120) continue
+    if (BENCHES.some(([a, b, c, d]) => x > a - 30 && x < c + 30 && z > b - 30 && z < d + 30)) continue
+    if (PALMS.some(([px, pz]) => Math.hypot(x - px, z - pz) < 30)) continue
+    out.push([x, z, ['#f472b6', '#fde047', '#ffffff', '#fb923c', '#a78bfa'][out.length % 5]])
+  }
+  return out
+})()
+function Flowers() {
+  return (
+    <group>
+      {FLOWERS.map(([fx, fz, col], i) => (
+        <group key={i} position={[fx * S, 0.03, fz * S]}>
+          <mesh position={[0, 0.12, 0]}><cylinderGeometry args={[0.02, 0.02, 0.24, 5]} /><meshLambertMaterial color="#2f7d32" /></mesh>
+          <mesh position={[0, 0.28, 0]}><sphereGeometry args={[0.13, 8, 6]} /><meshLambertMaterial color={col} /></mesh>
+          <mesh position={[0, 0.3, 0.1]}><sphereGeometry args={[0.05, 6, 6]} /><meshBasicMaterial color="#facc15" /></mesh>
+        </group>
+      ))}
+    </group>
+  )
+}
+
 function Ground() {
   const dashesH = []
-  for (let x = 0; x < WW; x += 90) if (x < 1200 || x > 1440) dashesH.push(x)
+  for (let x = 0; x < WW; x += 90) if (x < VROAD.x - 40 || x > VROAD.x + VROAD.w + 40) dashesH.push(x)
   const dashesV = []
-  for (let y = 770; y < WH; y += 90) dashesV.push(y)
+  for (let y = 770; y < WH; y += 90) if (y < ROAD2.y - 20 || y > ROAD2.y + ROAD2.h) dashesV.push(y)
   return (
     <group>
       <mesh rotation-x={-Math.PI / 2} position={[(WW * S) / 2, -0.01, (WH * S) / 2]} receiveShadow>
@@ -466,13 +765,117 @@ function Ground() {
       <Rect x={0} z={480} w={WW} d={60} h={0.16} c="#d6d3d1" />
       <Rect x={0} z={700} w={1240} d={60} h={0.16} c="#d6d3d1" />
       <Rect x={1400} z={700} w={WW - 1400} d={60} h={0.16} c="#d6d3d1" />
-      <Rect x={1200} z={760} w={40} d={WH - 760} h={0.16} c="#d6d3d1" />
-      <Rect x={1400} z={760} w={40} d={WH - 760} h={0.16} c="#d6d3d1" />
+      {[1200, 1400].map((vx) => (
+        <group key={vx}>
+          <Rect x={vx} z={760} w={40} d={ROAD2.y - 40 - 760} h={0.16} c="#d6d3d1" />
+          <Rect x={vx} z={ROAD2.y + ROAD2.h + 40} w={40} d={WH - (ROAD2.y + ROAD2.h + 40)} h={0.16} c="#d6d3d1" />
+        </group>
+      ))}
+      {/* second road (south) + sidewalks */}
+      {[[0, 1240], [1400, WW - 1400]].map(([sx, sw]) => (
+        <group key={sx}>
+          <Rect x={sx} z={ROAD2.y - 40} w={sw} d={40} h={0.16} c="#d6d3d1" />
+          <Rect x={sx} z={ROAD2.y + ROAD2.h} w={sw} d={40} h={0.16} c="#d6d3d1" />
+          <Rect x={sx} z={2160} w={sw} d={60} h={0.16} c="#d6d3d1" />
+        </group>
+      ))}
+      <Rect x={0} z={ROAD2.y} w={WW} d={ROAD2.h} h={0.06} c="#4b5563" />
+      {dashesH.map((x) => <Rect key={'h2' + x} x={x} z={ROAD2.y + ROAD2.h / 2 - 4} w={48} d={8} y={0.06} h={0.02} c="#fcd116" />)}
+      {/* south plaza */}
+      <Rect x={2150} z={2230} w={500} d={420} h={0.05} c="#e7d3a7" />
       {/* roads */}
       <Rect x={0} z={540} w={WW} d={160} h={0.06} c="#4b5563" />
       <Rect x={1240} z={700} w={160} d={WH - 700} h={0.06} c="#4b5563" />
       {dashesH.map((x) => <Rect key={'h' + x} x={x} z={618} w={48} d={8} y={0.06} h={0.02} c="#fcd116" />)}
       {dashesV.map((y) => <Rect key={'v' + y} x={1316} z={y} w={8} d={48} y={0.06} h={0.02} c="#fcd116" />)}
+    </group>
+  )
+}
+
+// ---------- palaisdaan (fishpond) ----------
+const FISH_COL = ['#fb923c', '#e5e7eb', '#fbbf24', '#f97316', '#d1d5db', '#fdba74']
+const PADS = [[3120, 2450, 1], [3250, 2560, 0.8], [3560, 2480, 1.1], [3700, 2600, 0.9], [3820, 2440, 0.8], [3300, 2420, 0.7], [3650, 2410, 0.9], [3100, 2600, 0.8]]
+function Pond() {
+  const fish = useRef([])
+  const rings = useRef([])
+  const cx = (POND.x + POND.w / 2) * S, cz = (POND.z + POND.d / 2) * S
+  const rx = (POND.w / 2) * S - 3, rz = (POND.d / 2) * S - 2.5
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime
+    fish.current.forEach((g, i) => {
+      if (!g) return
+      const sp = 0.25 + (i % 3) * 0.08, ph = i * 1.7, k = 0.55 + (i % 4) * 0.12
+      const a = t * sp * (i % 2 ? 1 : -1) + ph
+      g.position.set(cx + Math.cos(a) * rx * k, 0.05, cz + Math.sin(a) * rz * k)
+      g.rotation.y = -a + (i % 2 ? -Math.PI / 2 : Math.PI / 2)
+      g.children[1].rotation.y = Math.sin(t * 8 + i) * 0.5
+    })
+    rings.current.forEach((m, i) => {
+      if (!m) return
+      const ph = (t * 0.35 + i * 0.33) % 1
+      m.scale.setScalar(0.4 + ph * 2.2)
+      m.material.opacity = (1 - ph) * 0.5
+    })
+  })
+  const dx = POND.dock[0] * S
+  return (
+    <group>
+      {/* banko ng putik / bato */}
+      <Rect x={POND.x - 40} z={POND.z - 40} w={POND.w + 80} d={POND.d + 80} h={0.05} c="#a3865a" />
+      <Rect x={POND.x - 15} z={POND.z - 15} w={POND.w + 30} d={POND.d + 30} h={0.07} c="#78716c" />
+      {/* tubig */}
+      <mesh rotation-x={-Math.PI / 2} position={[cx, 0.1, cz]}>
+        <planeGeometry args={[POND.w * S, POND.d * S]} />
+        <meshLambertMaterial color="#38bdf8" transparent opacity={0.78} />
+      </mesh>
+      {/* ripples */}
+      {[0, 1, 2].map((i) => (
+        <mesh key={i} ref={(m) => (rings.current[i] = m)} rotation-x={-Math.PI / 2} position={[cx - 8 + i * 8, 0.12, cz + (i - 1) * 3]}>
+          <ringGeometry args={[0.8, 1, 24]} />
+          <meshBasicMaterial color="#ffffff" transparent opacity={0.4} depthWrite={false} />
+        </mesh>
+      ))}
+      {/* mga isda sa ilalim */}
+      {FISH_COL.map((c, i) => (
+        <group key={i} ref={(g) => (fish.current[i] = g)}>
+          <mesh scale={[0.55, 0.2, 0.22]}><sphereGeometry args={[1, 10, 8]} /><meshLambertMaterial color={c} /></mesh>
+          <mesh position={[-0.55, 0, 0]} rotation-z={Math.PI / 2}><coneGeometry args={[0.2, 0.35, 4]} /><meshLambertMaterial color={c} /></mesh>
+        </group>
+      ))}
+      {/* lily pads + bulaklak */}
+      {PADS.map(([x, z, k], i) => (
+        <group key={i} position={[x * S, 0.12, z * S]} scale={k}>
+          <mesh rotation-x={-Math.PI / 2}><circleGeometry args={[0.55, 14]} /><meshLambertMaterial color="#2f9e44" /></mesh>
+          {i % 3 === 0 && <mesh position={[0, 0.1, 0]}><sphereGeometry args={[0.18, 8, 6]} /><meshLambertMaterial color="#f9a8d4" /></mesh>}
+        </group>
+      ))}
+      {/* tambo (reeds) sa gilid */}
+      {Array.from({ length: 18 }, (_, i) => {
+        const x = POND.x + 40 + i * ((POND.w - 80) / 17), z = i % 2 ? POND.z + POND.d - 8 : POND.z + POND.d + 6
+        if (Math.abs(x - POND.dock[0]) < 60 && false) return null
+        return (
+          <group key={i} position={[x * S, 0, z * S]}>
+            <Cyl p={[0, 0.9, 0]} a={[0.04, 0.06, 1.8, 5]} c="#65a30d" />
+            <Cyl p={[0.12, 0.7, 0.05]} a={[0.04, 0.06, 1.4, 5]} c="#84cc16" />
+            <Cyl p={[0, 1.85, 0]} a={[0.1, 0.1, 0.4, 6]} c="#7c4a21" />
+          </group>
+        )
+      })}
+      {/* dock */}
+      <group position={[dx, 0, POND.dock[1] * S]}>
+        {Array.from({ length: 9 }, (_, i) => <Box key={i} p={[0, 0.22, -0.4 + i * 0.95]} s={[4.4, 0.18, 0.85]} c={i % 2 ? '#a16207' : '#92400e'} />)}
+        {[[-2.1, 0.5], [2.1, 0.5], [-2.1, 7], [2.1, 7]].map(([x, z], i) => <Cyl key={i} p={[x, 0.5, z]} a={[0.18, 0.18, 1, 8]} c="#78350f" />)}
+        <Box p={[-2.1, 1.2, 4.2]} s={[0.12, 0.12, 5.6]} c="#78350f" />
+        <Box p={[2.1, 1.2, 4.2]} s={[0.12, 0.12, 5.6]} c="#78350f" />
+        <Box p={[3.4, 0.3, 0.6]} s={[1.1, 0.6, 1.1]} c="#b45309" />
+      </group>
+      {/* karatula */}
+      <group position={[dx - 6, 0, (POND.dock[1] - 25) * S]}>
+        <Box p={[-1.4, 1.6, 0]} s={[0.25, 3.2, 0.25]} c="#8b5a2b" />
+        <Box p={[1.4, 1.6, 0]} s={[0.25, 3.2, 0.25]} c="#8b5a2b" />
+        <Box p={[0, 3.3, 0]} s={[4.6, 1.3, 0.3]} c="#8b5a2b" />
+        <Text position={[0, 3.3, 0.18]} fontSize={0.7} color="#ffffff" anchorX="center" anchorY="middle">🎣 Palaisdaan</Text>
+      </group>
     </group>
   )
 }
@@ -505,13 +908,13 @@ function Clouds({ envR }) {
     const cl = envR.current.cloud
     mat.color.set('#ffffff').lerp(gray, Math.min(1, cl * 0.9))
     g.current.children.forEach((c) => {
-      c.position.x += dt * 0.8; if (c.position.x > 190) c.position.x = -70
+      c.position.x += dt * 0.8; if (c.position.x > WW * S + 70) c.position.x = -70
       c.scale.setScalar(1 + cl * 0.6)
     })
   })
   return (
     <group ref={g}>
-      {Array.from({ length: 8 }, (_, i) => (
+      {Array.from({ length: 12 }, (_, i) => (
         <group key={i} position={[i * 28 - 60, 32 + (i % 3) * 3, -10 + ((i * 37) % 90)]}>
           <mesh scale={[5, 1.6, 2.6]}><sphereGeometry args={[1, 12, 8]} /><primitive object={mat} attach="material" dispose={null} /></mesh>
           <mesh position={[2.4, 0.9, 0]} scale={[3.2, 1.4, 2.2]}><sphereGeometry args={[1, 12, 8]} /><primitive object={mat} attach="material" dispose={null} /></mesh>
@@ -541,7 +944,7 @@ export default function Scene3D({ bridge, look }) {
   const jeepRefs = useRef([])
   const ps = useRef({ x: 300, z: 520, face: 0 })
   const npcState = useRef(NPCS.map((n) => ({ x: n.x, z: n.y, hx: n.x, hz: n.y, vx: 0, vz: 0, think: Math.random() * 1.8, stop: 0, face: 0, mode: n.cry ? 'cry' : 'idle', mt: 0, li: 0, lt: 0 })))
-  const vehicles = useRef([[0, 610, -1], [1, 680, 1], [2, 640, -1]].map(([i, z, d], n) => ({ i, z, d, x: 300 + n * 800, speed: d * (60 + n * 15) })))
+  const vehicles = useRef([[0, 610, -1], [1, 680, 1], [2, 640, -1], [3, 1750, 1], [0, 1820, -1], [1, 1780, 1]].map(([i, z, d], n) => ({ i, z, d, x: 300 + n * 800, speed: d * (60 + n * 15) })))
   const rideRefs = useRef([])
   const rides = useRef(PARKED.map(([x, z, , f]) => ({
     hx: x, hz: z - 8, x, z: z - 8, yaw: f ? Math.PI : 0, home: f ? Math.PI : 0,
@@ -808,6 +1211,10 @@ export default function Scene3D({ bridge, look }) {
       const d = Math.hypot(p.x - pl.door, p.z - (pl.base + 28))
       if (d < bd) { bd = d; best = { type: 'place', id: pl.id, label: pl.label } }
     })
+    {
+      const d = Math.hypot(p.x - POND.dock[0], p.z - POND.dock[1])
+      if (d < bd) { bd = d; best = { type: 'place', id: 'fishpond', label: 'Palaisdaan (Fishing)' } }
+    }
     NPCS.forEach((n, i) => {
       if (n.cry) return
       const s = npcState.current[i]
@@ -954,7 +1361,12 @@ export default function Scene3D({ bridge, look }) {
       {PALMS.map(([x, z]) => <Palm key={x + '_' + z} x={x} z={z} />)}
       <Bench x={430} z={1180} />
       <Bench x={730} z={1285} />
+      <Bench x={2230} z={2520} />
+      <Bench x={2570} z={2520} />
+      <Fountain x={2400} z={2450} />
+      <Pond />
       <Fountain x={580} z={1225} />
+      <Flowers />
       <group position={[580 * S, 0, 806 * S]}>
         <Box p={[-3, 1.5, 0]} s={[0.4, 3, 0.4]} c="#8b5a2b" />
         <Box p={[3, 1.5, 0]} s={[0.4, 3, 0.4]} c="#8b5a2b" />
@@ -963,8 +1375,8 @@ export default function Scene3D({ bridge, look }) {
       </group>
 
       {/* street lights */}
-      {POLES.map((x) => (
-        <group key={x} position={[x * S, 0, 750 * S]}>
+      {POLES.map(([x, zb]) => (
+        <group key={x + '_' + zb} position={[x * S, 0, zb * S]}>
           <Cyl p={[0, 3.75, 0]} a={[0.15, 0.22, 7.5, 8]} c="#374151" />
           <mesh position={[0, 7.7, 0]}><sphereGeometry args={[0.45, 12, 12]} /><meshBasicMaterial color="#fff3a0" /></mesh>
           <mesh position={[0, 7.7, 0]}><sphereGeometry args={[1.5, 12, 12]} /><primitive object={GLOW_MAT} attach="material" dispose={null} /></mesh>

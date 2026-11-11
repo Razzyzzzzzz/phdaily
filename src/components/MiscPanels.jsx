@@ -117,7 +117,7 @@ export function SettingsPanel({ settings, setSettings, user, onLogout, onReset, 
         <div className="space-y-2">
           <p className="font-bold">Signed in as {user}</p>
           <button className="btn-blue w-full" onClick={onLogout}>Log out</button>
-          <button className="btn-red w-full" onClick={() => window.confirm('Delete saved progress?') && onReset()}>Reset progress</button>
+          <button className="btn-red w-full" onClick={onReset}>Reset progress</button>
         </div>
       )}
     </Panel>

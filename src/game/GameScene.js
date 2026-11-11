@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { WW, WH, PLACES, NPCS, LOCATIONS } from './world'
+import { WW, WH, PLACES, NPCS, LOCATIONS, ROAD2, VROAD } from './world'
 
 const hex = (s) => Number('0x' + s.slice(1))
 const FONT = { fontFamily: '"Baloo 2", system-ui, sans-serif', fontStyle: 'bold' }
@@ -22,7 +22,7 @@ export default class GameScene extends Phaser.Scene {
     this.drawPoles()
 
     JEEP.forEach((c, i) => this.jeepTexture('jeep' + i, c))
-    this.vehicles = [[0, 610, -1], [1, 680, 1], [2, 640, -1]].map(([i, y, d], n) => {
+    this.vehicles = [[0, 610, -1], [1, 680, 1], [2, 640, -1], [3, 1750, 1], [0, 1820, -1], [1, 1780, 1]].map(([i, y, d], n) => {
       const s = this.add.image(300 + n * 800, y, 'jeep' + i).setOrigin(0.5, 1).setDepth(y)
       s.speed = d * (60 + n * 15); s.setFlipX(d < 0)
       return s
@@ -87,7 +87,7 @@ export default class GameScene extends Phaser.Scene {
     sky.fillGradientStyle(0x4aa8ff, 0x4aa8ff, 0xcdeeff, 0xcdeeff, 1).fillRect(0, 0, WW, 480)
     sky.fillStyle(0xfff3a0, 0.3).fillCircle(1900, 90, 62).fillStyle(0xfff3a0).fillCircle(1900, 90, 40)
     sky.fillStyle(0xffffff, 0.9)
-    for (let i = 0; i < 7; i++) { const x = i * 380 + 120, y = 70 + (i % 3) * 36; sky.fillEllipse(x, y, 130, 38).fillEllipse(x + 40, y - 14, 84, 34) }
+    for (let i = 0; i < Math.ceil(WW / 380); i++) { const x = i * 380 + 120, y = 70 + (i % 3) * 36; sky.fillEllipse(x, y, 130, 38).fillEllipse(x + 40, y - 14, 84, 34) }
     sky.fillStyle(0x7fb7a4)
     for (let x = -100; x < WW; x += 300) sky.fillTriangle(x, 300, x + 150, 110 + ((x / 300) % 3) * 24, x + 300, 300)
     sky.fillStyle(0x9db4cc)
@@ -98,16 +98,28 @@ export default class GameScene extends Phaser.Scene {
     const g = this.add.graphics().setDepth(1)
     g.fillStyle(0x86c66b).fillRect(0, 480, WW, WH - 480)
     g.fillStyle(0x72b457)
-    for (let i = 0; i < 320; i++) g.fillRect(Phaser.Math.Between(0, WW), Phaser.Math.Between(500, WH), 3, 7)
+    const specks = Math.round(((WW * WH) / (2400 * 1700)) * 320)
+    for (let i = 0; i < specks; i++) g.fillRect(Phaser.Math.Between(0, WW), Phaser.Math.Between(500, WH), 3, 7)
+    // sidewalks
     g.fillStyle(0xd6d3d1).fillRect(0, 480, WW, 60).fillRect(0, 700, WW, 60).fillRect(1200, 760, 240, WH - 760)
+    g.fillRect(0, ROAD2.y - 40, WW, ROAD2.h + 80) // sidewalk around road 2
+    g.fillRect(0, 2160, WW, 60) // sidewalk in front of the south row
+    // terminal lot (now runs to the east edge)
     g.fillStyle(0xcfc8bb).fillRect(1440, 1020, WW - 1440, 600)
+    // park + paths
     g.fillStyle(0x5fae5a).fillRect(60, 800, 1120, 840)
     g.fillStyle(0xe7d3a7).fillRect(60, 1180, 1120, 80).fillRect(540, 800, 80, 840)
-    g.fillStyle(0x4b5563).fillRect(0, 540, WW, 160).fillRect(1240, 700, 160, WH - 700)
+    // roads
+    g.fillStyle(0x4b5563).fillRect(0, 540, WW, 160).fillRect(0, ROAD2.y, WW, ROAD2.h).fillRect(VROAD.x, 700, VROAD.w, WH - 700)
     g.fillStyle(0xa8a29e).fillRect(0, 536, WW, 4).fillRect(0, 700, WW, 4)
+    g.fillRect(0, ROAD2.y - 4, WW, 4).fillRect(0, ROAD2.y + ROAD2.h, WW, 4)
+    // lane markings
     g.fillStyle(0xfcd116)
-    for (let x = 0; x < WW; x += 90) if (x < 1200 || x > 1440) g.fillRect(x, 618, 48, 5)
-    for (let y = 770; y < WH; y += 90) g.fillRect(1316, y, 8, 48)
+    const vx0 = VROAD.x - 40, vx1 = VROAD.x + VROAD.w + 40
+    for (let x = 0; x < WW; x += 90) {
+      if (x < vx0 || x > vx1) { g.fillRect(x, 618, 48, 5); g.fillRect(x, ROAD2.y + ROAD2.h / 2 - 2, 48, 5) }
+    }
+    for (let y = 770; y < WH; y += 90) if (y < ROAD2.y - 20 || y > ROAD2.y + ROAD2.h) g.fillRect(VROAD.x + VROAD.w / 2 - 4, y, 8, 48)
   }
 
   drawBuilding(p) {
@@ -171,12 +183,15 @@ export default class GameScene extends Phaser.Scene {
   }
 
   drawPoles() {
-    for (let x = 120; x < WW; x += 360) {
-      if (x > 1180 && x < 1460) continue
-      const g = this.add.graphics().setDepth(750)
-      g.fillStyle(0x374151).fillRect(x - 4, 600, 8, 150).fillStyle(0xfff3a0).fillCircle(x, 598, 8)
-      this.solid(x - 5, 742, 10, 8)
-    }
+    // yb = y of the pole base. One row for each road.
+    ;[750, ROAD2.y + ROAD2.h + 30].forEach((yb) => {
+      for (let x = 120; x < WW; x += 360) {
+        if (x > VROAD.x - 60 && x < VROAD.x + VROAD.w + 60) continue
+        const g = this.add.graphics().setDepth(yb)
+        g.fillStyle(0x374151).fillRect(x - 4, yb - 150, 8, 150).fillStyle(0xfff3a0).fillCircle(x, yb - 152, 8)
+        this.solid(x - 5, yb - 8, 10, 8)
+      }
+    })
   }
 
   jeepTexture(key, color) {

@@ -22,4 +22,7 @@ input { -webkit-user-select: text; user-select: text; }
 @keyframes elph-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(251, 146, 60, 0.65); } 50% { box-shadow: 0 0 0 14px rgba(251, 146, 60, 0); } }
 @keyframes elph-spin { to { transform: rotate(360deg); } }
 @keyframes elph-twinkle { 0%, 100% { opacity: 0.35; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.15); } }
+@keyframes elph-fly { from { transform: translateX(-10vw); } to { transform: translateX(110vw); } }
+@keyframes elph-flap { from { transform: scaleY(1); } to { transform: scaleY(0.55); } }
+@keyframes elph-float { 0% { transform: translate(0, 0) rotate(-8deg); } 50% { transform: translate(24px, -26px) rotate(6deg); } 100% { transform: translate(-14px, -10px) rotate(-4deg); } }
 @media (prefers-reduced-motion: reduce) { .elph-anim, .elph-anim * { animation: none !important; } }
