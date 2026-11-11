@@ -63,8 +63,9 @@ function Minimap({ bridge }) {
   )
 }
 
-export default function GameCanvas({ bridge, look }) {
+export default function GameCanvas({ bridge, look, minutes = 480, day = 1 }) {
   bridge.look = look
+  bridge.env = { minutes, day } // oras + araw para sa day/night at weather sa Scene3D
   return (
     <div className="absolute inset-0 select-none" style={{ touchAction: 'none' }} onContextMenu={(e) => e.preventDefault()}>
       <Canvas

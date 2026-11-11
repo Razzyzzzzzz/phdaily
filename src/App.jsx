@@ -91,7 +91,7 @@ export default function App() {
       )}
       {screen === 'game' && state.player && (
         <>
-          <GameCanvas bridge={bridge} look={state.player.look} />
+          <GameCanvas bridge={bridge} look={state.player.look} minutes={state.minutes} day={state.day} />
           <Hud state={state} />
           <div className="absolute bottom-3 right-2 z-10 flex gap-2">
             {btn.map(([icon, label, type]) => (

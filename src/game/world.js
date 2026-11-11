@@ -20,5 +20,18 @@ export const NPCS = [
   { id: 'joy', name: 'Ate Joy', shop: 'restaurant', x: 1080, y: 510, look: L('#c68642', '#1b1b1b', '#fcd116', 'female', 2), line: 'Adobo ang ulam ngayon. Kain ka muna?' },
   { id: 'maria', name: 'Ate Maria', shop: 'market', x: 1740, y: 510, look: L('#f1c27d', '#3b2417', '#f472b6', 'female', 2), line: 'Hi! Want to buy some fresh fruits?' },
   { id: 'dodong', name: 'Kuya Dodong', x: 700, y: 1220, look: L('#e0ac69', '#4a2c17', '#0038a8', 'male', 1), line: 'Pahinga muna dito sa parke. Basketball tayo mamaya, pre!' },
+  // umiiyak na NPC: kapag lumapit ka, sasabihin niya ang `line` tapos tatakbo palayo
+  { id: 'bea', name: 'Bea', cry: true, x: 430, y: 1184, look: L('#f1c27d', '#2b1b12', '#a78bfa', 'female', 2), line: 'Ako nalang kasi...',
+    // sinasabi niya habang hinahabol mo siya (paiba-iba, paulit-ulit)
+    chaseLines: [
+      'Miss na miss ko na siya...',
+      'Bakit mo pa ako hinahabol?',
+      'Iniwan niya ako, hik...',
+      'Sana bumalik na siya...',
+      'Huwag mo na akong sundan...',
+      'Mahal ko pa rin siya...',
+      'Ako nalang kasi sana...',
+      'Hindi ko na kaya, hu hu...',
+    ] },
   { id: 'tonyo', name: 'Mang Tonyo', x: 1760, y: 1100, look: L('#8d5524', '#1b1b1b', '#2a9d8f', 'male', 0), line: 'Para po! Jeepney driver ako dito. Kailangan ng rider? Punta ka sa terminal.' },
 ]

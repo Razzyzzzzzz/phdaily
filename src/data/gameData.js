@@ -38,6 +38,7 @@ export const fmtTime = (day, m) => {
   const h = Math.floor(m / 60)
   return `${DAYS[(day - 1) % 7]} ${((h + 11) % 12) + 1}:${String(m % 60).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`
 }
-export const weather = (day) => [['☀️', 'Sunny'], ['⛅', 'Cloudy'], ['🌧️', 'Rainy']][(day * 5) % 3]
+export const weatherIndex = (day) => (day * 5) % 3 // 0 = Sunny, 1 = Cloudy, 2 = Rainy
+export const weather = (day) => [['☀️', 'Sunny'], ['⛅', 'Cloudy'], ['🌧️', 'Rainy']][weatherIndex(day)]
 export const level = (s) => 1 + Math.floor(s.stats.jobs / 3)
 export const effectText = (it) => [it.hunger && `🍽️ +${it.hunger}`, it.energy && `⚡ +${it.energy}`, it.health && `❤️ +${it.health}`].filter(Boolean).join('  ')

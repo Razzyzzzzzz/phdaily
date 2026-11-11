@@ -1,13 +1,22 @@
-import { forwardRef, useEffect, useRef } from 'react'
+import { forwardRef, useEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Billboard, Sky, Text } from '@react-three/drei'
+import { Billboard, Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { WW, WH, PLACES, NPCS, LOCATIONS } from './world'
+import { weatherIndex } from '../data/gameData'
 
 // Simulation runs in the same pixel units as the old 2D game (x, z = old x, y).
 // Everything is scaled by S when rendered.
 const S = 0.05
 const JEEP = [0xef476f, 0x06d6a0, 0xffd166, 0x4cc9f0]
+// ----- umiiyak na NPC (NPCS entry na may `cry: true`) -----
+const CRY_TRIGGER = 110   // px: gaano kalapit ang player bago siya magsalita
+const CRY_SAY_TIME = 2.4  // seconds na nakikita ang speech bubble bago tumakbo
+const CRY_LINE_TIME = 1.9 // seconds bawat linya habang hinahabol
+const CRY_STAND_TIME = 0.6 // seconds ng pagtayo mula sa upuan bago tumakbo
+const CRY_FLEE_SPEED = 200 // px/s (mabilis; ang player ay 165)
+const CRY_FLEE_TIME = 8   // seconds na tatakbo palayo bago mawala
+const CRY_RESPAWN = 20    // seconds na malayo ka bago siya bumalik sa bench niya
 const PARKED = [[1700, 1180, 3, false], [2020, 1260, 1, true], [2260, 1170, 0, false]]
 const PALMS = [[140, 900], [320, 900], [820, 900], [1020, 900], [140, 1500], [400, 1560], [760, 1560], [1040, 1500], [300, 1340], [860, 1340]]
 const POLES = []
@@ -17,10 +26,17 @@ for (let x = 120; x < WW; x += 360) if (!(x > 1180 && x < 1460)) POLES.push(x)
 const R = 11
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
 const BOXES = [
-  [1560, 820, 2200, 1020], // terminal
-  ...PARKED.map(([x, y]) => [x - 58, y - 8 - 27, x + 58, y - 8 + 27]), // parked jeepneys
+  [1560, 820, 2200, 1020], // terminal building
+  [516, 802, 524, 810], [636, 802, 644, 810], // mga poste ng "Parke" sign
 ]
-let DYN = [] // moving jeepneys, refreshed every frame
+const BENCHES = [[430, 1180], [730, 1285]].map(([x, z]) => [x - 42, z - 17, x + 42, z + 17]) // mga bench sa park
+let DYN = [] // moving jeepneys (traffic + terminal jeepneys), refreshed every frame
+
+// ----- jeepneys at the terminal you can ride -----
+const RIDE_SPEED = 170
+// out of the lot, up the main road, west along the town, back east, home again (px)
+const ROUTE = (x, z) => [[x, z], [x, 1400], [1360, 1400], [1360, 560], [300, 560], [300, 672], [1290, 672], [1290, 1440], [x, 1440], [x, z]]
+const rideBox = (r) => (Math.abs(Math.sin(r.yaw)) > 0.7 ? [r.x - 27, r.z - 58, r.x + 27, r.z + 58] : [r.x - 58, r.z - 27, r.x + 58, r.z + 27])
 const hitBox = (x, z, [a, b, c, d]) => {
   const cx = clamp(x, a, c), cz = clamp(z, b, d)
   return (x - cx) ** 2 + (z - cz) ** 2 < R * R
@@ -30,16 +46,20 @@ const CIRCLES = [
   ...POLES.map((x) => [x, 746, 6]),
   [580, 1225, 72], // fountain
 ]
-const blocked = (x, z) => {
+// free = true kapag nasa loob na ng bench (nakaupo o kakatayo pa lang) para makalabas
+const blocked = (x, z, free) => {
   if (x < R || x > WW - R || z < 492 || z > WH - R) return true
   for (const b of BOXES) if (hitBox(x, z, b)) return true
+  if (!free) for (const b of BENCHES) if (hitBox(x, z, b)) return true
   for (const b of DYN) if (hitBox(x, z, b)) return true
   for (const [cx, cz, r] of CIRCLES) if ((x - cx) ** 2 + (z - cz) ** 2 < (r + R) ** 2) return true
   return false
 }
+const onBench = (o) => BENCHES.some((b) => hitBox(o.x, o.z, b))
 const step = (o, dx, dz) => {
-  if (!blocked(o.x + dx, o.z)) o.x += dx
-  if (!blocked(o.x, o.z + dz)) o.z += dz
+  const fr = onBench(o)
+  if (!blocked(o.x + dx, o.z, fr)) o.x += dx
+  if (!blocked(o.x, o.z + dz, fr)) o.z += dz
 }
 // if a moving jeepney ends up on top of someone, move them to the nearest free side
 const pushOut = (o) => {
@@ -55,6 +75,17 @@ const pushOut = (o) => {
       o.z = clamp(o.z, 492, WH - R)
     }
   }
+}
+// a free spot beside a jeepney (px) for getting off
+const findFree = (r) => {
+  const fx = Math.cos(r.yaw), fz = -Math.sin(r.yaw) // forward
+  const sx = Math.sin(r.yaw), sz = Math.cos(r.yaw) // side
+  const jb = rideBox(r)
+  for (const [f, s] of [[0, 80], [0, -80], [0, 120], [0, -120], [-90, 80], [-90, -80], [90, 80], [90, -80], [0, 170], [0, -170], [-140, 0], [140, 0]]) {
+    const x = r.x + fx * f + sx * s, z = r.z + fz * f + sz * s
+    if (!blocked(x, z) && !hitBox(x, z, jb)) return [x, z]
+  }
+  return [r.x, r.z + 90]
 }
 // is a camera position inside (or touching) a building?
 const camHit = (x, y, z) =>
@@ -84,19 +115,65 @@ function Rect({ x, z, w, d, y = 0, h = 0.04, c }) {
 }
 
 // ---------- character ----------
-export const Character = forwardRef(function Character({ look, label }, ref) {
+export const Character = forwardRef(function Character({ look, label, cry, bubble }, ref) {
   const fem = look.gender === 'female'
   const st = look.hairStyle ?? 0
   const body = useRef(), legL = useRef(), legR = useRef(), armL = useRef(), armR = useRef()
-  useFrame(({ clock }) => {
+  const head = useRef(), tearL = useRef(), tearR = useRef(), bubbleRef = useRef()
+  const textR = useRef(), bgR = useRef(), bdR = useRef(), lastTxt = useRef(bubble)
+  useFrame(({ clock }, dt) => {
     const g = ref.current
     if (!g) return
     const w = g.userData.walk || 0
-    const t = clock.elapsedTime * 10
+    const t = clock.elapsedTime * (cry ? 15 : 10)
     const sw = Math.sin(t) * 0.8 * w
     legL.current.rotation.x = sw; legR.current.rotation.x = -sw
     armL.current.rotation.x = -sw; armR.current.rotation.x = sw
     body.current.position.y = Math.abs(Math.sin(t)) * 0.12 * w
+    if (cry) {
+      const tt = clock.elapsedTime
+      const pose = !!g.userData.cry // nakatayong umiiyak (hindi tumatakbo)
+      if (pose) {
+        const sob = Math.sin(tt * 9) * 0.5 + 0.5
+        armL.current.rotation.x = -2.25 + sob * 0.12; armR.current.rotation.x = -2.25 + sob * 0.12
+        armL.current.rotation.z = 0.25; armR.current.rotation.z = -0.25
+        head.current.rotation.x = 0.38 + sob * 0.08
+        body.current.position.x = Math.sin(tt * 26) * 0.02
+        body.current.position.y += sob * 0.05
+      } else {
+        armL.current.rotation.z = 0; armR.current.rotation.z = 0
+        head.current.rotation.x = 0; body.current.position.x = 0
+      }
+      // nakaupo (nakalabas ang mga binti, mas mababa ang katawan); smooth ang pagtayo
+      const sitT = g.userData.sit ? 1 : 0
+      let sitK = g.userData.sitK ?? sitT
+      sitK = g.visible ? sitK + (sitT - sitK) * Math.min(1, dt * 8) : sitT
+      g.userData.sitK = sitK
+      if (sitK > 0.001) {
+        legL.current.rotation.x = legL.current.rotation.x * (1 - sitK) - 1.5 * sitK
+        legR.current.rotation.x = legR.current.rotation.x * (1 - sitK) - 1.5 * sitK
+        body.current.position.y += sitK * 0.27
+      }
+      // luha
+      const on = g.userData.tears ? 1 : 0
+      ;[[tearL.current, 0], [tearR.current, 0.5]].forEach(([m, off]) => {
+        if (!m) return
+        const run = w > 0.3 // mas marami/malaki ang luha kapag tumatakbo
+        const ph = (tt * (run ? 3 : 1.5) + off) % 1
+        m.position.y = -0.08 - ph * 0.85
+        m.scale.setScalar(on * (run ? 2.2 : 1.4) * (1 - ph * 0.5))
+      })
+      if (bubbleRef.current) {
+        const txt = g.userData.say ? g.userData.sayText || bubble : null
+        bubbleRef.current.visible = !!txt
+        if (txt && txt !== lastTxt.current) {
+          lastTxt.current = txt
+          textR.current.text = txt; textR.current.sync?.()
+          const w = txt.length * 0.27 + 0.9
+          bgR.current.scale.x = w; bdR.current.scale.x = w + 0.2
+        }
+      }
+    }
   })
   const pants = fem ? look.skin : '#333a4a'
   const hairMat = { side: THREE.DoubleSide }
@@ -127,13 +204,19 @@ export const Character = forwardRef(function Character({ look, label }, ref) {
           </group>
         ))}
         {/* head */}
-        <group position={[0, 2.95, 0]}>
+        <group ref={head} position={[0, 2.95, 0]}>
           <mesh castShadow>
             <sphereGeometry args={[0.55, 20, 16]} />
             <meshLambertMaterial color={look.skin} />
           </mesh>
           <mesh position={[-0.2, 0.05, 0.5]}><sphereGeometry args={[0.07, 8, 8]} /><meshBasicMaterial color="#111111" /></mesh>
           <mesh position={[0.2, 0.05, 0.5]}><sphereGeometry args={[0.07, 8, 8]} /><meshBasicMaterial color="#111111" /></mesh>
+          {cry && (
+            <>
+              <mesh ref={tearL} position={[-0.2, -0.1, 0.52]}><sphereGeometry args={[0.07, 8, 8]} /><meshBasicMaterial color="#60c8ff" /></mesh>
+              <mesh ref={tearR} position={[0.2, -0.1, 0.52]}><sphereGeometry args={[0.07, 8, 8]} /><meshBasicMaterial color="#60c8ff" /></mesh>
+            </>
+          )}
           {fem && (
             <>
               <mesh position={[-0.3, -0.15, 0.45]} scale={[1, 0.6, 0.4]}><sphereGeometry args={[0.1, 8, 8]} /><meshBasicMaterial color="#f472b6" transparent opacity={0.6} /></mesh>
@@ -154,6 +237,21 @@ export const Character = forwardRef(function Character({ look, label }, ref) {
           )}
         </group>
       </group>
+      {cry && bubble && (
+        <group ref={bubbleRef} visible={false}>
+          <Billboard position={[0, 5.5, 0]}>
+            <mesh ref={bgR} position={[0, 0, -0.02]} scale={[bubble.length * 0.27 + 0.9, 1, 1]}>
+              <planeGeometry args={[1, 1.05]} />
+              <meshBasicMaterial color="#ffffff" />
+            </mesh>
+            <mesh ref={bdR} position={[0, 0, -0.03]} scale={[bubble.length * 0.27 + 1.1, 1, 1]}>
+              <planeGeometry args={[1, 1.25]} />
+              <meshBasicMaterial color="#1e3a8a" />
+            </mesh>
+            <Text ref={textR} fontSize={0.48} color="#1e293b" anchorX="center" anchorY="middle">{bubble}</Text>
+          </Billboard>
+        </group>
+      )}
       {label && (
         <Billboard position={[0, 4.5, 0]}>
           <Text fontSize={0.5} color="#ffffff" outlineWidth={0.07} outlineColor="#1e3a8a" anchorX="center" anchorY="middle">{label}</Text>
@@ -162,6 +260,91 @@ export const Character = forwardRef(function Character({ look, label }, ref) {
     </group>
   )
 })
+
+// ---------- day / night + weather ----------
+// shared materials na umiilaw kapag gabi (ina-update bawat frame sa Scene3D)
+const WINDOW_MAT = new THREE.MeshLambertMaterial({ color: '#bfe9ff', emissive: '#ffd27a', emissiveIntensity: 0 })
+const HEAD_MAT = new THREE.MeshLambertMaterial({ color: '#fff3a0', emissive: '#fff3a0', emissiveIntensity: 0.1 })
+const GLOW_MAT = new THREE.MeshBasicMaterial({ color: '#ffe9a0', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })
+const POOL_MAT = new THREE.MeshBasicMaterial({ color: '#ffd27a', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending })
+
+// [oras, tuktok ng langit, abot-tanaw, hemi light, araw/buwan light, kulay ng light, bituin]
+const KF = [
+  [0,    '#050a1f', '#16224a', 0.35, 0.35, '#9fb4ff', 1],
+  [5,    '#07102a', '#1c2a55', 0.35, 0.35, '#9fb4ff', 1],
+  [6,    '#3b4c86', '#ff9a6a', 0.5,  0.7,  '#ffb27a', 0.35],
+  [7.5,  '#4d8ee0', '#ffd9b0', 0.75, 1.25, '#fff0d8', 0],
+  [9,    '#3f8fe0', '#cdeeff', 0.85, 1.5,  '#ffffff', 0],
+  [16,   '#3f8fe0', '#cdeeff', 0.85, 1.5,  '#ffffff', 0],
+  [17.5, '#4a6cc0', '#ffc38a', 0.7,  1.1,  '#ffc08a', 0],
+  [18.5, '#34447f', '#ff8a5c', 0.5,  0.6,  '#ff9a6a', 0.35],
+  [19.5, '#0e1636', '#2c2d5c', 0.38, 0.38, '#9fb4ff', 0.9],
+  [20.5, '#050a1f', '#16224a', 0.35, 0.35, '#9fb4ff', 1],
+  [24,   '#050a1f', '#16224a', 0.35, 0.35, '#9fb4ff', 1],
+].map(([h, t, o, hm, li, lc, st]) => [h, new THREE.Color(t), new THREE.Color(o), hm, li, new THREE.Color(lc), st])
+const SK = { top: new THREE.Color(), hor: new THREE.Color(), lightColor: new THREE.Color(), hemi: 1, light: 1, star: 0 }
+function skyAt(h, cloud) {
+  let i = 0
+  while (i < KF.length - 2 && h >= KF[i + 1][0]) i++
+  const A = KF[i], B = KF[i + 1], f = (h - A[0]) / (B[0] - A[0])
+  SK.top.copy(A[1]).lerp(B[1], f); SK.hor.copy(A[2]).lerp(B[2], f); SK.lightColor.copy(A[5]).lerp(B[5], f)
+  SK.hemi = A[3] + (B[3] - A[3]) * f
+  SK.light = A[4] + (B[4] - A[4]) * f
+  SK.star = A[6] + (B[6] - A[6]) * f
+  // makulimlim / maulan: kulay-abo at mas madilim
+  const g = Math.min(1, cloud * 0.85)
+  ;[SK.top, SK.hor].forEach((c) => {
+    const l = (c.r * 0.3 + c.g * 0.59 + c.b * 0.11) * (1 - 0.3 * g)
+    c.r += (l - c.r) * g; c.g += (l - c.g) * g; c.b += (l - c.b) * g
+  })
+  SK.light *= 1 - 0.65 * cloud
+  SK.hemi *= 1 - 0.2 * cloud
+  return SK
+}
+const STAR_POS = (() => {
+  const a = new Float32Array(360 * 3)
+  for (let i = 0; i < 360; i++) {
+    const th = Math.random() * Math.PI * 2, y = 0.06 + Math.random() * 0.94, r = Math.sqrt(1 - y * y)
+    a[i * 3] = Math.cos(th) * r * 350; a[i * 3 + 1] = y * 350; a[i * 3 + 2] = Math.sin(th) * r * 350
+  }
+  return a
+})()
+const _sd = new THREE.Vector3()
+
+// patak ng ulan sa paligid ng player
+function Rain({ envR, cam }) {
+  const N = 900
+  const ref = useRef(), geo = useRef()
+  const data = useMemo(() => Float32Array.from({ length: N * 3 }, (_, i) => (i % 3 === 1 ? Math.random() * 28 : (Math.random() - 0.5) * 50)), [])
+  const pos = useMemo(() => new Float32Array(N * 6), [])
+  useFrame((_, dt0) => {
+    const dt = Math.min(dt0, 0.05), r = envR.current.rain, g = ref.current
+    g.visible = r > 0.03
+    if (!g.visible) return
+    g.position.set(cam.current.px, 0, cam.current.pz)
+    const n = Math.floor(N * r)
+    for (let i = 0; i < n; i++) {
+      let y = data[i * 3 + 1] - 55 * dt
+      if (y < 0) y += 28
+      data[i * 3 + 1] = y
+      const x = data[i * 3], z = data[i * 3 + 2]
+      pos[i * 6] = x; pos[i * 6 + 1] = y; pos[i * 6 + 2] = z
+      pos[i * 6 + 3] = x + 0.12; pos[i * 6 + 4] = y - 0.9; pos[i * 6 + 5] = z
+    }
+    geo.current.attributes.position.needsUpdate = true
+    geo.current.setDrawRange(0, n * 2)
+  })
+  return (
+    <lineSegments ref={ref} frustumCulled={false}>
+      <bufferGeometry ref={geo}><bufferAttribute attach="attributes-position" args={[pos, 3]} /></bufferGeometry>
+      <lineBasicMaterial color="#bcd4ff" transparent opacity={0.5} fog={false} />
+    </lineSegments>
+  )
+}
+
+function Lamp({ p, s }) {
+  return <mesh position={p}><boxGeometry args={s} /><primitive object={HEAD_MAT} attach="material" dispose={null} /></mesh>
+}
 
 // ---------- world pieces ----------
 function Building({ p }) {
@@ -177,7 +360,7 @@ function Building({ p }) {
         return (
           <group key={wx}>
             <Box p={[wcx, 6.25, zf + 0.05]} s={[78 * S, 3.1, 0.1]} c="#ffffff" />
-            <Box p={[wcx, 6.25, zf + 0.1]} s={[70 * S, 2.7, 0.1]} c="#bfe9ff" />
+            <mesh position={[wcx, 6.25, zf + 0.1]}><boxGeometry args={[70 * S, 2.7, 0.1]} /><primitive object={WINDOW_MAT} attach="material" dispose={null} /></mesh>
             <Box p={[wcx, 6.25, zf + 0.15]} s={[4 * S, 2.7, 0.08]} c="#ffffff" />
             <Box p={[wcx, 6.3, zf + 0.15]} s={[70 * S, 4 * S, 0.08]} c="#ffffff" />
           </group>
@@ -248,11 +431,11 @@ function Jeep({ color }) {
     <group>
       <Box p={[0, 0.95, 0]} s={[5.6, 1, 2.6]} c={color} />
       <Box p={[0, 0.75, 0]} s={[5.62, 0.18, 2.62]} c="#fcd116" />
-      <Box p={[0, 1.73, 0]} s={[4.7, 0.55, 2.4]} c="#bfe9ff" />
+      <Box p={[0, 1.73, 0]} s={[4.7, 0.55, 2.4]} c="#bfe9ff" transparent opacity={0.4} />
       {[-2, -0.7, 0.7, 2].map((x) => <Box key={x} p={[x, 1.73, 0]} s={[0.14, 0.56, 2.5]} c={color} />)}
       <Box p={[0, 2.06, 0]} s={[4.9, 0.14, 2.7]} c={color} />
-      <Box p={[2.82, 0.95, 0.8]} s={[0.1, 0.3, 0.4]} c="#fff3a0" />
-      <Box p={[2.82, 0.95, -0.8]} s={[0.1, 0.3, 0.4]} c="#fff3a0" />
+      <Lamp p={[2.82, 0.95, 0.8]} s={[0.1, 0.3, 0.4]} />
+      <Lamp p={[2.82, 0.95, -0.8]} s={[0.1, 0.3, 0.4]} />
       {[[-1.9, 1.25], [1.9, 1.25], [-1.9, -1.25], [1.9, -1.25]].map(([x, z]) => (
         <group key={x + '_' + z} position={[x, 0.5, z]} rotation={[Math.PI / 2, 0, 0]}>
           <Cyl a={[0.5, 0.5, 0.32, 14]} c="#111111" />
@@ -314,16 +497,25 @@ function Backdrop() {
   )
 }
 
-function Clouds() {
+function Clouds({ envR }) {
   const g = useRef()
-  useFrame((_, dt) => g.current.children.forEach((c) => { c.position.x += dt * 0.8; if (c.position.x > 190) c.position.x = -70 }))
+  const mat = useMemo(() => new THREE.MeshLambertMaterial({ color: '#ffffff', transparent: true, opacity: 0.92 }), [])
+  const gray = useMemo(() => new THREE.Color('#8a95a3'), [])
+  useFrame((_, dt) => {
+    const cl = envR.current.cloud
+    mat.color.set('#ffffff').lerp(gray, Math.min(1, cl * 0.9))
+    g.current.children.forEach((c) => {
+      c.position.x += dt * 0.8; if (c.position.x > 190) c.position.x = -70
+      c.scale.setScalar(1 + cl * 0.6)
+    })
+  })
   return (
     <group ref={g}>
       {Array.from({ length: 8 }, (_, i) => (
         <group key={i} position={[i * 28 - 60, 32 + (i % 3) * 3, -10 + ((i * 37) % 90)]}>
-          <mesh scale={[5, 1.6, 2.6]}><sphereGeometry args={[1, 12, 8]} /><meshLambertMaterial color="#ffffff" transparent opacity={0.92} /></mesh>
-          <mesh position={[2.4, 0.9, 0]} scale={[3.2, 1.4, 2.2]}><sphereGeometry args={[1, 12, 8]} /><meshLambertMaterial color="#ffffff" transparent opacity={0.92} /></mesh>
-          <mesh position={[-2.6, 0.5, 0.4]} scale={[3, 1.2, 2]}><sphereGeometry args={[1, 12, 8]} /><meshLambertMaterial color="#ffffff" transparent opacity={0.92} /></mesh>
+          <mesh scale={[5, 1.6, 2.6]}><sphereGeometry args={[1, 12, 8]} /><primitive object={mat} attach="material" dispose={null} /></mesh>
+          <mesh position={[2.4, 0.9, 0]} scale={[3.2, 1.4, 2.2]}><sphereGeometry args={[1, 12, 8]} /><primitive object={mat} attach="material" dispose={null} /></mesh>
+          <mesh position={[-2.6, 0.5, 0.4]} scale={[3, 1.2, 2]}><sphereGeometry args={[1, 12, 8]} /><primitive object={mat} attach="material" dispose={null} /></mesh>
         </group>
       ))}
     </group>
@@ -334,24 +526,60 @@ function Clouds() {
 export default function Scene3D({ bridge, look }) {
   const { camera, gl } = useThree()
   const light = useRef()
+  const hemi = useRef(), fogR = useRef(), skyG = useRef(), sunM = useRef(), moonM = useRef(), starsR = useRef()
+  const envR = useRef({ t: null, cloud: 0, rain: 0 })
+  const skyGeo = useMemo(() => {
+    const g = new THREE.SphereGeometry(400, 24, 16)
+    const n = g.attributes.position.count, ys = new Float32Array(n)
+    for (let i = 0; i < n; i++) ys[i] = g.attributes.position.getY(i) / 400
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3))
+    g.userData.ys = ys
+    return g
+  }, [])
   const player = useRef()
   const npcRefs = useRef(NPCS.map(() => ({ current: null })))
   const jeepRefs = useRef([])
   const ps = useRef({ x: 300, z: 520, face: 0 })
-  const npcState = useRef(NPCS.map((n) => ({ x: n.x, z: n.y, hx: n.x, hz: n.y, vx: 0, vz: 0, think: Math.random() * 1.8, stop: 0, face: 0 })))
+  const npcState = useRef(NPCS.map((n) => ({ x: n.x, z: n.y, hx: n.x, hz: n.y, vx: 0, vz: 0, think: Math.random() * 1.8, stop: 0, face: 0, mode: n.cry ? 'cry' : 'idle', mt: 0, li: 0, lt: 0 })))
   const vehicles = useRef([[0, 610, -1], [1, 680, 1], [2, 640, -1]].map(([i, z, d], n) => ({ i, z, d, x: 300 + n * 800, speed: d * (60 + n * 15) })))
+  const rideRefs = useRef([])
+  const rides = useRef(PARKED.map(([x, z, , f]) => ({
+    hx: x, hz: z - 8, x, z: z - 8, yaw: f ? Math.PI : 0, home: f ? Math.PI : 0,
+    route: null, seg: 0, active: false, rider: false, dir: undefined,
+  })))
+  const riding = useRef(null)
   const keys = useRef(new Set())
   const cam = useRef({ yaw: 0, dist: 12, px: 300, pz: 520, snap: true })
   const near = useRef({ key: null, best: null })
 
+  const startRide = (k) => {
+    const r = rides.current[k]
+    if (r.active) return
+    r.route = ROUTE(r.hx, r.hz); r.seg = 0; r.active = true; r.rider = true; r.dir = undefined
+    riding.current = k
+  }
+  const stopRide = () => {
+    const k = riding.current
+    if (k == null) return
+    const r = rides.current[k]
+    const [x, z] = findFree(r)
+    ps.current.x = x; ps.current.z = z
+    r.rider = false
+    riding.current = null
+  }
   const interact = () => {
-    if (bridge.paused || !near.current.best) return
-    bridge.onInteract?.(near.current.best)
+    if (bridge.paused) return
+    if (riding.current != null) return stopRide()
+    const best = near.current.best
+    if (!best) return
+    if (best.type === 'ride') return startRide(best.k)
+    bridge.onInteract?.(best)
   }
 
   useEffect(() => {
     bridge.doInteract = interact
     bridge.teleport = (id) => {
+      if (riding.current != null) { rides.current[riding.current].rider = false; riding.current = null }
       const [x, z] = LOCATIONS[id]
       ps.current.x = x; ps.current.z = z
       cam.current.snap = true
@@ -405,13 +633,17 @@ export default function Scene3D({ bridge, look }) {
     const vec = bridge.vec || { x: 0, y: 0 }
 
     // moving jeepneys are solid
-    DYN = vehicles.current.map((v) => [v.x - 58, v.z - 27, v.x + 58, v.z + 27])
-    pushOut(p)
+    DYN = [
+      ...vehicles.current.map((v) => [v.x - 58, v.z - 27, v.x + 58, v.z + 27]),
+      ...rides.current.filter((r) => !r.rider).map(rideBox),
+    ]
+    const onJeep = riding.current != null
+    if (!onJeep) pushOut(p)
     npcState.current.forEach(pushOut)
 
     // ----- player input (camera-relative) -----
     let ix = 0, iy = 0
-    if (!bridge.paused) {
+    if (!bridge.paused && !onJeep) {
       ix = (k.has('d') || k.has('arrowright') ? 1 : 0) - (k.has('a') || k.has('arrowleft') ? 1 : 0) + (Math.abs(vec.x) > 0.15 ? vec.x : 0)
       iy = (k.has('s') || k.has('arrowdown') ? 1 : 0) - (k.has('w') || k.has('arrowup') ? 1 : 0) + (Math.abs(vec.y) > 0.15 ? vec.y : 0)
     }
@@ -430,22 +662,89 @@ export default function Scene3D({ bridge, look }) {
 
     // ----- NPCs -----
     npcState.current.forEach((n, i) => {
-      n.think -= dt
-      if (n.think <= 0) {
-        n.think = 1.8
-        if (Math.random() < 0.4) { n.vx = 0; n.vz = 0; n.stop = 0 } else {
-          const far = Math.hypot(n.x - n.hx, n.z - n.hz) > 70
-          const a = far ? Math.atan2(n.hz - n.z, n.hx - n.x) : Math.random() * Math.PI * 2
-          n.vx = Math.cos(a) * 40; n.vz = Math.sin(a) * 40; n.stop = 1
+      const cfg = NPCS[i]
+      const flags = { pose: false, tears: false, say: false, hidden: false, sit: false, text: null }
+      if (cfg.cry) {
+        // umiiyak -> may sinasabi -> tumatakbo palayo -> nawawala -> bumabalik
+        const dp = Math.hypot(p.x - n.x, p.z - n.z)
+        if (n.mode === 'cry') {
+          n.vx = 0; n.vz = 0
+          flags.pose = true; flags.tears = true; flags.sit = true
+          n.face = lerpAngle(n.face, 0, 1 - Math.exp(-10 * dt))
+          if (dp < CRY_TRIGGER && !onJeep) { n.mode = 'say'; n.mt = CRY_SAY_TIME }
+        } else if (n.mode === 'say') {
+          // nakaupo pa rin, lumalabas ang "Ako nalang kasi..."
+          n.vx = 0; n.vz = 0
+          flags.pose = true; flags.tears = true; flags.say = true; flags.sit = true; flags.text = cfg.line
+          n.mt -= dt
+          if (n.mt <= 0) { n.mode = 'stand'; n.mt = CRY_STAND_TIME }
+        } else if (n.mode === 'stand') {
+          // tumatayo mula sa upuan
+          n.vx = 0; n.vz = 0
+          flags.pose = true; flags.tears = true
+          n.face = lerpAngle(n.face, Math.atan2(p.x - n.x, p.z - n.z), 1 - Math.exp(-10 * dt))
+          n.mt -= dt
+          if (n.mt <= 0) { n.mode = 'flee'; n.mt = CRY_FLEE_TIME; n.li = 0; n.lt = CRY_LINE_TIME; n.rt = 0; n.fa = Math.atan2(n.z - p.z, n.x - p.x) }
+        } else if (n.mode === 'flee') {
+          // tumatakbo palayo sa player; umiiwas sa fountain, puno, pader (pumipili ng libreng direksyon)
+          const away = Math.atan2(n.z - p.z, n.x - p.x)
+          n.rt -= dt
+          const fr = onBench(n)
+          if (n.rt <= 0 || blocked(n.x + Math.cos(n.fa) * 30, n.z + Math.sin(n.fa) * 30, fr)) {
+            n.rt = 0.4
+            for (const off of [0, 0.5, -0.5, 1, -1, 1.5, -1.5, 2.2, -2.2]) {
+              const a = away + off
+              if (!blocked(n.x + Math.cos(a) * 35, n.z + Math.sin(a) * 35, fr) && !blocked(n.x + Math.cos(a) * 90, n.z + Math.sin(a) * 90, fr)) { n.fa = a; break }
+            }
+          }
+          n.vx = Math.cos(n.fa) * CRY_FLEE_SPEED; n.vz = Math.sin(n.fa) * CRY_FLEE_SPEED
+          flags.pose = true; flags.tears = true // tumatakbo habang umiiyak (nakatakip ang kamay sa mukha)
+          // may sinasabi habang hinahabol: "miss na miss ko na siya..." atbp.
+          const lines = cfg.chaseLines
+          if (lines && lines.length) {
+            n.lt -= dt
+            if (n.lt <= 0) { n.lt = CRY_LINE_TIME; n.li = (n.li + 1) % lines.length }
+            flags.say = true; flags.text = lines[n.li]
+          }
+          n.mt -= dt
+          if (n.mt <= 0 || dp > 420) { n.mode = 'away'; n.mt = 0; n.vx = 0; n.vz = 0 } // hindi nawawala: tumitigil at umiiyak
+        } else if (n.mode === 'away') {
+          // nakatayo at umiiyak sa pinagtigilan niya; tatakbo ulit kapag nilapitan mo
+          n.vx = 0; n.vz = 0
+          flags.pose = true; flags.tears = true
+          if (dp < CRY_TRIGGER && !onJeep) {
+            n.mode = 'flee'; n.mt = CRY_FLEE_TIME; n.li = 0; n.lt = CRY_LINE_TIME; n.rt = 0; n.fa = Math.atan2(n.z - p.z, n.x - p.x)
+          } else if (dp > 500) {
+            // kapag matagal ka nang malayo, babalik siya sa bench (hindi mo makikita)
+            n.mt += dt
+            if (n.mt >= CRY_RESPAWN) { n.x = n.hx; n.z = n.hz; n.face = 0; n.mode = 'cry' }
+          } else n.mt = 0
+        } else {
+          // gone: nakatago; babalik lang kapag malayo na ang player
+          flags.hidden = true
+          n.mt -= dt
+          if (n.mt <= 0 && dp > 500) { n.x = n.hx; n.z = n.hz; n.face = 0; n.mode = 'cry' }
         }
+      } else {
+        n.think -= dt
+        if (n.think <= 0) {
+          n.think = 1.8
+          if (Math.random() < 0.4) { n.vx = 0; n.vz = 0; n.stop = 0 } else {
+            const far = Math.hypot(n.x - n.hx, n.z - n.hz) > 70
+            const a = far ? Math.atan2(n.hz - n.z, n.hx - n.x) : Math.random() * Math.PI * 2
+            n.vx = Math.cos(a) * 40; n.vz = Math.sin(a) * 40; n.stop = 1
+          }
+        }
+        if (n.stop > 0) { n.stop -= dt; if (n.stop <= 0) { n.vx = 0; n.vz = 0 } }
       }
-      if (n.stop > 0) { n.stop -= dt; if (n.stop <= 0) { n.vx = 0; n.vz = 0 } }
       step(n, n.vx * dt, n.vz * dt)
       const mv = n.vx !== 0 || n.vz !== 0
       if (mv) n.face = lerpAngle(n.face, Math.atan2(n.vx, n.vz), 1 - Math.exp(-10 * dt))
       const g = npcRefs.current[i].current
       if (!g) return
       g.userData.walk = (g.userData.walk || 0) + ((mv ? 1 : 0) - (g.userData.walk || 0)) * Math.min(1, dt * 12)
+      g.visible = !flags.hidden
+      g.userData.cry = flags.pose; g.userData.tears = flags.tears; g.userData.say = flags.say; g.userData.sayText = flags.text; g.userData.sit = flags.sit
       g.position.set(n.x * S, 0, n.z * S)
       g.rotation.y = n.face
     })
@@ -462,6 +761,47 @@ export default function Scene3D({ bridge, look }) {
       if (g) { g.position.set(v.x * S, 0, v.z * S); g.rotation.y = v.d > 0 ? 0 : Math.PI }
     })
 
+    // ----- rideable jeepneys at the terminal -----
+    rides.current.forEach((r, k) => {
+      const g = rideRefs.current[k]
+      if (!g) return
+      if (r.active) {
+        // wait behind slower traffic
+        const ax = r.x + Math.cos(r.yaw) * 90, az = r.z - Math.sin(r.yaw) * 90
+        const stuck = vehicles.current.some((v) => ax > v.x - 68 && ax < v.x + 68 && az > v.z - 37 && az < v.z + 37)
+        let move = stuck ? 0 : RIDE_SPEED * dt
+        while (move > 0 && r.seg < r.route.length - 1) {
+          const [tx, tz] = r.route[r.seg + 1]
+          const dx = tx - r.x, dz = tz - r.z, dist = Math.hypot(dx, dz)
+          if (dist <= move) { r.x = tx; r.z = tz; r.seg++; move -= dist } else {
+            r.x += (dx / dist) * move; r.z += (dz / dist) * move
+            r.dir = Math.atan2(-dz, dx); move = 0
+          }
+        }
+        if (r.dir !== undefined) r.yaw = lerpAngle(r.yaw, r.dir, 1 - Math.exp(-8 * dt))
+        if (r.seg >= r.route.length - 1) {
+          // back at the terminal: park and let the passenger off
+          r.active = false; r.x = r.hx; r.z = r.hz; r.yaw = r.home
+          if (r.rider) {
+            r.rider = false; riding.current = null
+            const [fx, fz] = findFree(r)
+            p.x = fx; p.z = fz
+          }
+        }
+      }
+      g.position.set(r.x * S, 0, r.z * S)
+      g.rotation.y = r.yaw
+    })
+    if (riding.current != null) {
+      // the passenger sits inside, visible through the windows
+      const r = rides.current[riding.current]
+      p.x = r.x; p.z = r.z
+      pg.position.set(r.x * S + Math.cos(r.yaw) * 0.6, 0.45, r.z * S - Math.sin(r.yaw) * 0.6)
+      pg.rotation.y = r.yaw + Math.PI / 2
+      pg.scale.setScalar(0.42)
+      pg.userData.walk = 0
+    } else pg.scale.setScalar(1)
+
     // ----- nearest interactable -----
     let best = null, bd = 70
     PLACES.forEach((pl) => {
@@ -469,10 +809,18 @@ export default function Scene3D({ bridge, look }) {
       if (d < bd) { bd = d; best = { type: 'place', id: pl.id, label: pl.label } }
     })
     NPCS.forEach((n, i) => {
+      if (n.cry) return
       const s = npcState.current[i]
       const d = Math.hypot(p.x - s.x, p.z - s.z)
       if (d < Math.min(bd, 60)) { bd = d; best = { type: 'npc', id: n.id, label: 'Talk to ' + n.name, name: n.name, line: n.line, shop: n.shop } }
     })
+    rides.current.forEach((r, k) => {
+      if (r.active) return
+      const [a, b, c, d] = rideBox(r)
+      const dd = Math.hypot(p.x - clamp(p.x, a, c), p.z - clamp(p.z, b, d))
+      if (dd < Math.min(bd, 50)) { bd = dd; best = { type: 'ride', id: 'ride' + k, k, label: '🚌 Ride Jeepney' } }
+    })
+    if (riding.current != null) best = { type: 'rideoff', id: 'off', label: 'Get off Jeepney' }
     const key = best && best.type + best.id
     if (key !== near.current.key) {
       near.current = { key, best }
@@ -482,8 +830,11 @@ export default function Scene3D({ bridge, look }) {
     // data for the minimap
     bridge.mini = {
       x: p.x, z: p.z, face: p.face,
-      jeeps: vehicles.current.map((v) => ({ x: v.x, z: v.z, i: v.i })),
-      npcs: npcState.current.map((n) => ({ x: n.x, z: n.z })),
+      jeeps: [
+        ...vehicles.current.map((v) => ({ x: v.x, z: v.z, i: v.i })),
+        ...rides.current.map((r, k) => ({ x: r.x, z: r.z, i: PARKED[k][2] })),
+      ],
+      npcs: npcState.current.filter((n) => n.mode !== 'gone').map((n) => ({ x: n.x, z: n.z })),
     }
 
     // ----- third-person camera -----
@@ -502,19 +853,90 @@ export default function Scene3D({ bridge, look }) {
     camera.position.set(c.px + ox * c.f, 2.2 + oy * c.f, c.pz + oz * c.f)
     camera.lookAt(c.px, 2.2, c.pz)
 
-    // sun + shadows follow the player
-    if (light.current) {
-      light.current.position.set(c.px + 25, 40, c.pz + 18)
-      light.current.target.position.set(c.px, 0, c.pz)
-      light.current.target.updateMatrixWorld()
+    // ----- day / night + weather -----
+    const E = envR.current, ev = bridge.env || { minutes: 480, day: 1 }
+    const eAbs = ev.day * 1440 + ev.minutes
+    const wi = weatherIndex(ev.day)
+    const cloudT = [0, 0.55, 1][wi], rainT = [0, 0, 1][wi]
+    if (E.t == null) { E.t = eAbs; E.cloud = cloudT; E.rain = rainT }
+    if (eAbs < E.t || eAbs - E.t > 180) E.t = eAbs // natulog / bagong araw
+    else E.t += (eAbs - E.t) * (1 - Math.exp(-2.5 * dt))
+    const wk = 1 - Math.exp(-0.8 * dt)
+    E.cloud += (cloudT - E.cloud) * wk
+    E.rain += (rainT - E.rain) * wk
+    const hr = (E.t % 1440) / 60
+    const sk = skyAt(hr, E.cloud)
+
+    // langit (gradient), fog, ilaw
+    const col = skyGeo.attributes.color, ys = skyGeo.userData.ys
+    for (let i = 0; i < ys.length; i++) {
+      const tt = Math.pow(Math.max(0, ys[i]), 0.55)
+      col.setXYZ(i, sk.hor.r + (sk.top.r - sk.hor.r) * tt, sk.hor.g + (sk.top.g - sk.hor.g) * tt, sk.hor.b + (sk.top.b - sk.hor.b) * tt)
     }
+    col.needsUpdate = true
+    if (fogR.current) {
+      fogR.current.color.copy(sk.hor)
+      fogR.current.near = 90 - 20 * E.cloud - 45 * E.rain
+      fogR.current.far = 220 - 40 * E.cloud - 90 * E.rain
+    }
+    if (hemi.current) hemi.current.intensity = sk.hemi
+
+    // araw sa umaga/hapon, buwan sa gabi (iisang directional light, sumusunod sa player)
+    const sunA = ((hr - 6) / 12) * Math.PI
+    const sX = Math.cos(sunA), sY = Math.max(Math.abs(Math.sin(sunA)), 0.25), sZ = 0.45
+    const sLen = Math.hypot(sX, sY, sZ)
+    if (light.current) {
+      const L = light.current
+      L.intensity = sk.light; L.color.copy(sk.lightColor)
+      L.position.set(c.px + (sX / sLen) * 50, (sY / sLen) * 50, c.pz + (sZ / sLen) * 50)
+      L.target.position.set(c.px, 0, c.pz)
+      L.target.updateMatrixWorld()
+    }
+    // makikitang araw, buwan at bituin
+    if (skyG.current) {
+      skyG.current.position.copy(camera.position)
+      _sd.set(Math.cos(sunA), Math.sin(sunA), 0.45).normalize()
+      const veil = 1 - 0.95 * E.cloud
+      sunM.current.visible = _sd.y > -0.08
+      sunM.current.position.copy(_sd).multiplyScalar(300)
+      sunM.current.material.opacity = veil
+      moonM.current.visible = -_sd.y > -0.08
+      moonM.current.position.copy(_sd).multiplyScalar(-300)
+      moonM.current.material.opacity = veil
+      const so = sk.star * veil
+      starsR.current.visible = so > 0.02
+      starsR.current.material.opacity = so
+      starsR.current.rotation.y = E.t * 0.0004
+    }
+    // mga ilaw: bintana, poste, headlights
+    const lamp = clamp(sk.star + E.cloud * 0.25, 0, 1)
+    WINDOW_MAT.emissiveIntensity = lamp * 0.9
+    HEAD_MAT.emissiveIntensity = 0.1 + lamp * 1.2
+    GLOW_MAT.opacity = lamp * 0.3
+    POOL_MAT.opacity = lamp * 0.28
   })
 
   return (
     <>
-      <Sky distance={450} sunPosition={[100, 60, -50]} turbidity={4} rayleigh={1.5} />
-      <fog attach="fog" args={['#d9efff', 90, 220]} />
-      <hemisphereLight args={['#ffffff', '#6aa84f', 0.85]} />
+      <group ref={skyG}>
+        <mesh geometry={skyGeo} renderOrder={-10}>
+          <meshBasicMaterial vertexColors side={THREE.BackSide} depthWrite={false} fog={false} toneMapped={false} />
+        </mesh>
+        <mesh ref={sunM}>
+          <sphereGeometry args={[16, 16, 12]} />
+          <meshBasicMaterial color="#fff3a0" transparent depthWrite={false} fog={false} toneMapped={false} />
+        </mesh>
+        <mesh ref={moonM}>
+          <sphereGeometry args={[11, 16, 12]} />
+          <meshBasicMaterial color="#f1f0e6" transparent depthWrite={false} fog={false} toneMapped={false} />
+        </mesh>
+        <points ref={starsR} frustumCulled={false}>
+          <bufferGeometry><bufferAttribute attach="attributes-position" args={[STAR_POS, 3]} /></bufferGeometry>
+          <pointsMaterial color="#ffffff" size={2.2} sizeAttenuation={false} transparent opacity={0} depthWrite={false} fog={false} toneMapped={false} />
+        </points>
+      </group>
+      <fog ref={fogR} attach="fog" args={['#d9efff', 90, 220]} />
+      <hemisphereLight ref={hemi} args={['#ffffff', '#6aa84f', 0.85]} />
       <directionalLight
         ref={light} castShadow intensity={1.5}
         shadow-mapSize={[2048, 2048]} shadow-bias={-0.0005}
@@ -524,7 +946,8 @@ export default function Scene3D({ bridge, look }) {
 
       <Ground />
       <Backdrop />
-      <Clouds />
+      <Clouds envR={envR} />
+      <Rain envR={envR} cam={cam} />
       {PLACES.map((p) => <Building key={p.id} p={p} />)}
 
       {/* park */}
@@ -544,6 +967,8 @@ export default function Scene3D({ bridge, look }) {
         <group key={x} position={[x * S, 0, 750 * S]}>
           <Cyl p={[0, 3.75, 0]} a={[0.15, 0.22, 7.5, 8]} c="#374151" />
           <mesh position={[0, 7.7, 0]}><sphereGeometry args={[0.45, 12, 12]} /><meshBasicMaterial color="#fff3a0" /></mesh>
+          <mesh position={[0, 7.7, 0]}><sphereGeometry args={[1.5, 12, 12]} /><primitive object={GLOW_MAT} attach="material" dispose={null} /></mesh>
+          <mesh rotation-x={-Math.PI / 2} position={[0, 0.22, 0]}><circleGeometry args={[5.5, 24]} /><primitive object={POOL_MAT} attach="material" dispose={null} /></mesh>
         </group>
       ))}
 
@@ -551,13 +976,19 @@ export default function Scene3D({ bridge, look }) {
       {vehicles.current.map((v, i) => (
         <group key={i} ref={(g) => (jeepRefs.current[i] = g)}><Jeep color={JEEP[v.i]} /></group>
       ))}
-      {PARKED.map(([x, z, i, f]) => (
-        <group key={x} position={[x * S, 0, z * S - 0.4]} rotation={[0, f ? Math.PI : 0, 0]}><Jeep color={JEEP[i]} /></group>
+      {PARKED.map(([x, z, i, f], k) => (
+        <group
+          key={x}
+          ref={(g) => {
+            rideRefs.current[k] = g
+            if (g && !g.userData.init) { g.userData.init = true; g.position.set(x * S, 0, (z - 8) * S); g.rotation.y = f ? Math.PI : 0 }
+          }}
+        ><Jeep color={JEEP[i]} /></group>
       ))}
 
       {/* people */}
       <Character ref={player} look={look} />
-      {NPCS.map((n, i) => <Character key={n.id} ref={npcRefs.current[i]} look={n.look} label={n.name} />)}
+      {NPCS.map((n, i) => <Character key={n.id} ref={npcRefs.current[i]} look={n.look} label={n.name} cry={n.cry} bubble={n.cry ? n.line : undefined} />)}
     </>
   )
 }
