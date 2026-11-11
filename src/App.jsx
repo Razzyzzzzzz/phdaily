@@ -8,7 +8,8 @@ import Joystick from './components/Joystick'
 import InventoryPanel from './components/InventoryPanel'
 import ShopPanel from './components/ShopPanel'
 import JobPanel from './components/JobPanel'
-import { MapPanel, HousePanel, DialogPanel, MissionsPanel, ProfilePanel, PausePanel, SettingsPanel } from './components/MiscPanels'
+import HouseRoom from './components/HouseRoom'
+import { MapPanel, DialogPanel, MissionsPanel, ProfilePanel, PausePanel, SettingsPanel } from './components/MiscPanels'
 import { reducer, initialState } from './store/gameReducer'
 import { ITEMS, JOBS, JOB_BY_PLACE } from './data/gameData'
 import { read, write, SETTINGS, saveKey } from './store/storage'
@@ -112,7 +113,7 @@ export default function App() {
       {panel?.type === 'jobs' && <JobPanel here={here} state={state} notify={notify} onClose={close}
         onComplete={(id) => { dispatch({ type: 'WORK', id }); notify(`✅ +₱${JOBS[id].pay} earned`) }} />}
       {panel?.type === 'map' && <MapPanel onGo={travel} onClose={close} />}
-      {panel?.type === 'house' && <HousePanel onSleep={sleep} onClose={close} />}
+      {panel?.type === 'house' && <HouseRoom state={state} touch={settings.touch} onSleep={sleep} onSave={(furniture) => dispatch({ type: 'FURNITURE', furniture })} onClose={close} />}
       {panel?.type === 'dialog' && <DialogPanel npc={panel.npc} onShop={(id) => setPanel({ type: 'shop', id })} onClose={close} />}
       {panel?.type === 'missions' && <MissionsPanel state={state} onClaim={(id) => dispatch({ type: 'CLAIM', id })} onClose={close} />}
       {panel?.type === 'profile' && <ProfilePanel state={state} onClose={close} />}

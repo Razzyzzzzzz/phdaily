@@ -3,13 +3,14 @@ const c = (v) => Math.max(0, Math.min(100, v))
 
 export const initialState = {
   player: null, money: 1000, energy: 100, hunger: 100, health: 100, day: 1, minutes: 480,
-  inventory: {}, stats: { jobs: 0, play: 0, bought: 0, slept: 0 }, claimed: {},
+  inventory: {}, stats: { jobs: 0, play: 0, bought: 0, slept: 0 }, claimed: {}, furniture: null,
 }
 
 export function reducer(s, a) {
   switch (a.type) {
     case 'LOAD': return { ...initialState, ...a.state, stats: { ...initialState.stats, ...a.state.stats } }
     case 'NEW': return { ...initialState, player: a.player }
+    case 'FURNITURE': return { ...s, furniture: a.furniture }
     case 'TICK': {
       const hunger = c(s.hunger - 0.5 * a.rate), energy = c(s.energy - 0.25 * a.rate)
       let health = s.health
