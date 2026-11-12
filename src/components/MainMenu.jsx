@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import Title from './Title'
 import CharacterPreview from './CharacterPreview'
 
@@ -99,28 +100,49 @@ function Scene() {
   )
 }
 
+// The menu foreground is designed once on a fixed stage (same look on every device) and then scaled
+// down to fit the screen. On a big PC screen it stays at 100%, on a landscape phone it shrinks evenly.
+const STAGE_W = 600, STAGE_H = 600
+
+function useFit(w, h) {
+  const [k, setK] = useState(1)
+  useEffect(() => {
+    const fit = () => {
+      const vv = window.visualViewport
+      const vw = vv?.width || window.innerWidth, vh = vv?.height || window.innerHeight
+      setK(Math.min(1, (vw - 16) / w, (vh - 16) / h))
+    }
+    fit()
+    window.addEventListener('resize', fit)
+    window.visualViewport?.addEventListener('resize', fit)
+    return () => { window.removeEventListener('resize', fit); window.visualViewport?.removeEventListener('resize', fit) }
+  }, [w, h])
+  return k
+}
+
 export default function MainMenu({ user, look, onPlay, onCreate, onSettings, onExit }) {
+  const k = useFit(STAGE_W, STAGE_H)
   const pop = (i) => ({ animation: `elph-pop 0.5s ${0.25 + i * 0.1}s both` })
   const hover = 'transition hover:-translate-y-0.5 hover:brightness-110'
   return (
-    <div className="relative flex h-full flex-col items-center justify-center gap-6 overflow-hidden bg-gradient-to-b from-sky-400 via-sky-200 to-green-200 p-4">
+    <div className="relative flex h-full items-center justify-center overflow-hidden bg-gradient-to-b from-sky-400 via-sky-200 to-green-200">
       <Scene />
-      <div className="elph-menu-gap relative z-10 flex flex-col items-center gap-6">
-        <div className="elph-menu-title"><Title /></div>
-        <div className="elph-menu-card elph-anim flex items-center gap-4 rounded-3xl bg-gradient-to-b from-white/45 to-white/20 p-4 shadow-2xl ring-2 ring-white/60 backdrop-blur-md">
+      <div className="relative z-10 flex shrink-0 flex-col items-center justify-center gap-6" style={{ width: STAGE_W, height: STAGE_H, transform: `scale(${k})`, transformOrigin: 'center center' }}>
+        <Title />
+        <div className="elph-anim flex items-center gap-4 rounded-3xl bg-gradient-to-b from-white/45 to-white/20 p-4 shadow-2xl ring-2 ring-white/60 backdrop-blur-md">
           <div className="flex flex-col items-center">
-            <CharacterPreview look={look} className="elph-menu-preview h-44 w-24 cursor-grab active:cursor-grabbing sm:h-72 sm:w-52" />
+            <CharacterPreview look={look} className="h-72 w-52 cursor-grab active:cursor-grabbing" />
             <p className="-mt-1 max-w-[9rem] truncate rounded-full border-2 border-white/70 bg-blue-900 px-4 py-0.5 text-sm font-extrabold text-white shadow-md">{user}</p>
             <p className="mt-1 text-[10px] font-bold text-blue-900/70">✋ Drag to rotate</p>
           </div>
-          <div className="elph-menu-buttons flex w-44 flex-col gap-3 sm:w-56">
+          <div className="flex w-56 flex-col gap-3">
             <button className={`btn-orange py-3 text-2xl ${hover}`} style={{ animation: `elph-pop 0.5s 0.25s both, elph-pulse 2.2s 1s infinite` }} onClick={onPlay}>▶ Play</button>
             <button className={`btn-blue ${hover}`} style={pop(1)} onClick={onCreate}>🧑 Character Creator</button>
             <button className={`btn-blue ${hover}`} style={pop(2)} onClick={onSettings}>⚙️ Settings</button>
             <button className={`btn-red ${hover}`} style={pop(3)} onClick={onExit}>🚪 Exit</button>
           </div>
         </div>
-        <p className="elph-menu-logged rounded-full bg-white/70 px-4 py-0.5 text-sm font-bold text-blue-900 shadow">Logged in as {user}</p>
+        <p className="rounded-full bg-white/70 px-4 py-0.5 text-sm font-bold text-blue-900 shadow">Logged in as {user}</p>
       </div>
     </div>
   )

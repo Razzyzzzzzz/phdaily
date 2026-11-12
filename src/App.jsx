@@ -14,7 +14,8 @@ import RotatePrompt from './components/RotatePrompt'
 import { autoLandscape } from './utils/landscape'
 import JobPanel from './components/JobPanel'
 import HouseRoom from './components/HouseRoom'
-import { MapPanel, DialogPanel, MissionsPanel, ProfilePanel, PausePanel, SettingsPanel } from './components/MiscPanels'
+import { DialogPanel, MissionsPanel, ProfilePanel, PausePanel, SettingsPanel } from './components/MiscPanels'
+import { MapPanel } from './components/MapPanel'
 import { reducer, initialState } from './store/gameReducer'
 import { ITEMS, JOBS, JOB_BY_PLACE } from './data/gameData'
 import { read, write, SETTINGS, saveKey } from './store/storage'
@@ -76,6 +77,19 @@ export default function App() {
   }, [doing])
   useEffect(() => { bridge.onNearby = setNearby; bridge.onInteract = onInteract })
   useEffect(() => { write(SETTINGS, settings) }, [settings])
+  // phone: the very first tap anywhere (menu included) goes fullscreen + landscape.
+  // Browsers only allow this after a tap, so it can't happen before the user touches the screen.
+  useEffect(() => {
+    if (!window.matchMedia?.('(pointer: coarse)').matches) return
+    const go = () => {
+      window.removeEventListener('pointerup', go)
+      window.removeEventListener('touchend', go)
+      autoLandscape()
+    }
+    window.addEventListener('pointerup', go)
+    window.addEventListener('touchend', go)
+    return () => { window.removeEventListener('pointerup', go); window.removeEventListener('touchend', go) }
+  }, [])
   useEffect(() => { if (screen === 'game' && user && state.player) write(saveKey(user), state) }, [state, screen])
   useEffect(() => {
     if (screen !== 'game') return
@@ -195,7 +209,7 @@ export default function App() {
       {panel?.type === 'fishing' && <FishingPanel state={state} onCast={cast} onCatch={caught} onSell={sellFish} onPhase={(p) => { bridge.actPhase = p }} onClose={close} />}
       {panel?.type === 'jobs' && <JobPanel here={here} state={state} notify={notify} onClose={close}
         onComplete={(id) => { dispatch({ type: 'WORK', id }); notify(`✅ +₱${JOBS[id].pay} earned`) }} />}
-      {panel?.type === 'map' && <MapPanel onGo={travel} onClose={close} />}
+      {panel?.type === 'map' && <MapPanel onGo={travel} onClose={close} getPos={() => bridge.mini} />}
       {panel?.type === 'house' && <HouseRoom state={state} touch={settings.touch} onSleep={sleep} onSave={(furniture) => dispatch({ type: 'FURNITURE', furniture })} onClose={close} />}
       {panel?.type === 'dialog' && <DialogPanel npc={panel.npc} onShop={(id) => setPanel({ type: 'shop', id })} onClose={close} />}
       {panel?.type === 'missions' && <MissionsPanel state={state} onClaim={(id) => dispatch({ type: 'CLAIM', id })} onClose={close} />}
@@ -224,7 +238,7 @@ export default function App() {
       {confirm && (
         <ConfirmModal {...confirm} onCancel={() => setConfirm(null)} onConfirm={() => { const go = confirm.onConfirm; setConfirm(null); go() }} />
       )}
-      {screen === 'game' && <RotatePrompt />}
+      <RotatePrompt />
       {toast && <div className="absolute left-1/2 top-24 z-50 -translate-x-1/2 rounded-full bg-yellow-300 px-4 py-2 font-extrabold text-slate-900 shadow-lg">{toast}</div>}
     </div>
   )

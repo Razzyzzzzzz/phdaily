@@ -4,11 +4,29 @@ import { Billboard, Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { WW, WH, PLACES, NPCS, LOCATIONS, ROAD2, VROAD, POND } from './world'
 import { weatherIndex } from '../data/gameData'
+import Grass from './Grass'
 
 // Simulation runs in the same pixel units as the old 2D game (x, z = old x, y).
 // Everything is scaled by S when rendered.
 const S = 0.05
 const JEEP = [0xef476f, 0x06d6a0, 0xffd166, 0x4cc9f0]
+const BUS = ['#2563eb', '#16a34a', '#dc2626', '#f59e0b']
+const TRIKE = ['#ef4444', '#3b82f6', '#22c55e', '#eab308']
+// half-length / half-width (world px) per vehicle kind, used for collision + waiting for people crossing
+const VSIZE = { jeep: [58, 27], bus: [96, 30], trike: [36, 19] }
+// [kind, color index, lane z, direction (1 = east, -1 = west), speed, start x]
+// same-speed vehicles share a lane so they never drive through each other
+const TRAFFIC = [
+  // main road (north): west lane z578, east lane z660
+  ['jeep', 0, 578, -1, 70, 4200], ['bus', 0, 578, -1, 70, 2000],
+  ['trike', 0, 578, -1, 125, 3000], ['trike', 1, 578, -1, 125, 800],
+  ['bus', 1, 660, 1, 60, 600], ['jeep', 1, 660, 1, 60, 2600],
+  ['trike', 2, 660, 1, 110, 1700],
+  // south road: east lane z1738, west lane z1822
+  ['jeep', 2, 1738, 1, 85, 300], ['bus', 2, 1738, 1, 85, 3200],
+  ['trike', 3, 1738, 1, 130, 1500],
+  ['jeep', 3, 1822, -1, 95, 1200], ['bus', 3, 1822, -1, 95, 3900],
+]
 // ----- umiiyak na NPC (NPCS entry na may `cry: true`) -----
 const IS_TOUCH = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches
 const CRY_TRIGGER = 110   // px: gaano kalapit ang player bago siya magsalita
@@ -291,6 +309,10 @@ const DRIVER_LOOKS = [
 const DRIVER_LINES = [
   'Hoy! Padaan naman!', 'Umalis ka diyan!', 'Nakaharang ka, pare!', 'Gusto mo bang masagasaan?!',
   'Tabi! Late na ako!', 'Aba, ayaw pang umalis!', 'Mga pasahero ko, hoy!', 'Beep beep! Dyan ka pa!',
+]
+const FIGHT_LINES = [
+  'Bakit ka ba huminto?!', 'Ikaw ang bumangga sa akin!', 'Wala kang modo, pare!', 'Sino nagturo sa iyo magmaneho?!',
+  'Bayaran mo ang gasgas!', 'Umusog ka nga diyan!', 'Hoy, may lisensya ka ba?!', 'Nagmamadali ako, tabi!',
 ]
 let _ac
 function honk() { // beep-beep ng busina (Web Audio, walang sound file)
@@ -1022,6 +1044,61 @@ function Fountain({ x, z }) {
   )
 }
 
+function Bus({ color }) {
+  return (
+    <group>
+      <Box p={[0, 1.0, 0]} s={[9, 1.1, 2.8]} c={color} />
+      <Box p={[0, 0.7, 0]} s={[9.02, 0.2, 2.82]} c="#fcd116" />
+      <Box p={[0, 1.85, 0]} s={[8.7, 0.95, 2.7]} c="#bfe9ff" transparent opacity={0.45} />
+      {[-4, -2.7, -1.35, 0, 1.35, 2.7, 4].map((x) => <Box key={x} p={[x, 1.85, 0]} s={[0.14, 0.97, 2.8]} c={color} />)}
+      <Box p={[0, 2.4, 0]} s={[9, 0.16, 2.9]} c={color} />
+      <Box p={[0, 1.4, 1.41]} s={[8.8, 0.14, 0.02]} c="#ffffff" />
+      <Box p={[0, 1.4, -1.41]} s={[8.8, 0.14, 0.02]} c="#ffffff" />
+      {/* windshield + destination sign */}
+      <Box p={[4.52, 1.85, 0]} s={[0.05, 0.85, 2.4]} c="#1e293b" />
+      <Box p={[4.45, 2.2, 0]} s={[0.1, 0.25, 1.6]} c="#fde047" />
+      {/* bumpers + lamps */}
+      <Box p={[4.62, 0.55, 0]} s={[0.2, 0.3, 2.7]} c="#d1d5db" />
+      <Box p={[-4.62, 0.55, 0]} s={[0.2, 0.3, 2.7]} c="#d1d5db" />
+      <Lamp p={[4.55, 0.95, 0.9]} s={[0.1, 0.3, 0.4]} />
+      <Lamp p={[4.55, 0.95, -0.9]} s={[0.1, 0.3, 0.4]} />
+      {[[-3, 1.3], [-3, -1.3], [3, 1.3], [3, -1.3]].map(([x, z]) => (
+        <group key={x + '_' + z} position={[x, 0.55, z]} rotation={[Math.PI / 2, 0, 0]}>
+          <Cyl a={[0.55, 0.55, 0.34, 14]} c="#111111" />
+          <Cyl a={[0.22, 0.22, 0.36, 10]} c="#9ca3af" />
+        </group>
+      ))}
+    </group>
+  )
+}
+
+function Trike({ color }) {
+  return (
+    <group>
+      {/* motorcycle (z -0.35) */}
+      <Box p={[0.2, 0.75, -0.35]} s={[1.5, 0.5, 0.5]} c="#374151" />
+      <Box p={[-0.1, 1.05, -0.35]} s={[0.9, 0.18, 0.45]} c="#111111" />
+      <Box p={[1.1, 1.1, -0.35]} s={[0.1, 0.9, 0.1]} c="#9ca3af" r={[0, 0, -0.35]} />
+      <Box p={[1.0, 1.55, -0.35]} s={[0.1, 0.1, 0.9]} c="#9ca3af" />
+      <Lamp p={[1.28, 1.1, -0.35]} s={[0.1, 0.25, 0.3]} />
+      {[[1.3, -0.35], [-0.95, -0.35], [-0.5, 0.8]].map(([x, z]) => (
+        <group key={x + '_' + z} position={[x, 0.38, z]} rotation={[Math.PI / 2, 0, 0]}>
+          <Cyl a={[0.38, 0.38, 0.2, 12]} c="#111111" />
+          <Cyl a={[0.15, 0.15, 0.22, 8]} c="#9ca3af" />
+        </group>
+      ))}
+      {/* sidecar (z +0.45) */}
+      <Box p={[-0.3, 0.75, 0.5]} s={[1.9, 0.7, 0.85]} c={color} />
+      <Box p={[-0.3, 0.45, 0.5]} s={[1.92, 0.12, 0.87]} c="#fcd116" />
+      <Box p={[0.65, 0.78, 0.5]} s={[0.35, 0.3, 0.8]} c={color} />
+      {/* roof */}
+      {[[1.0, -0.8], [1.0, 0.95], [-1.1, -0.8], [-1.1, 0.95]].map(([x, z]) => <Box key={x + '_' + z} p={[x, 1.5, z]} s={[0.07, 1.0, 0.07]} c="#9ca3af" />)}
+      <Box p={[-0.05, 2.02, 0.08]} s={[2.9, 0.09, 1.95]} c={color} />
+      <Box p={[1.45, 1.96, 0.08]} s={[0.3, 0.07, 1.95]} c="#fcd116" />
+    </group>
+  )
+}
+
 function Jeep({ color }) {
   return (
     <group>
@@ -1282,7 +1359,7 @@ export default function Scene3D({ bridge, look }) {
   const ps = useRef({ x: 300, z: 520, face: 0 })
   const jumpS = useRef({ y: 0, vy: 0, req: false }) // talon (Space / Jump button)
   const npcState = useRef(NPCS.map((n) => ({ x: n.x, z: n.y, hx: n.x, hz: n.y, vx: 0, vz: 0, think: Math.random() * 1.8, stop: 0, face: 0, mode: n.cry ? 'cry' : 'idle', mt: 0, li: 0, lt: 0 })))
-  const vehicles = useRef([[0, 610, -1], [1, 680, 1], [2, 640, -1], [3, 1750, 1], [0, 1820, -1], [1, 1780, 1]].map(([i, z, d], n) => ({ i, z, d, x: 300 + n * 800, speed: d * (60 + n * 15) })))
+  const vehicles = useRef(TRAFFIC.map(([kind, i, z, d, sp, x]) => ({ kind, i, z, d, x, speed: d * sp, hl: VSIZE[kind][0], hw: VSIZE[kind][1] })))
   const rideRefs = useRef([])
   const driverRefs = useRef(vehicles.current.map(() => ({ current: null })))
   const rides = useRef(PARKED.map(([x, z, , f]) => ({
@@ -1388,7 +1465,7 @@ export default function Scene3D({ bridge, look }) {
 
     // moving jeepneys are solid
     DYN = [
-      ...vehicles.current.map((v) => [v.x - 58, v.z - 27, v.x + 58, v.z + 27]),
+      ...vehicles.current.map((v) => [v.x - v.hl, v.z - v.hw, v.x + v.hl, v.z + v.hw]),
       ...rides.current.filter((r) => !r.rider).map(rideBox),
     ]
     const onJeep = riding.current != null
@@ -1511,17 +1588,41 @@ export default function Scene3D({ bridge, look }) {
       g.rotation.y = n.face
     })
 
-    // ----- moving jeepneys -----
-    vehicles.current.forEach((v, i) => {
-      // wait for anyone crossing in front of the jeepney
-      const [f1, f2] = v.d > 0 ? [v.x + 50, v.x + 130] : [v.x - 130, v.x - 50]
-      const inFront = (q) => q.x > f1 && q.x < f2 && Math.abs(q.z - v.z) < 27 + R + 6
+    // ----- moving traffic: vehicles queue behind each other; bumper to bumper = the drivers fight -----
+    const VT = vehicles.current
+    VT.forEach((v, i) => {
+      v.fight = Math.max(0, (v.fight || 0) - dt)
+      // wait for anyone crossing in front of the vehicle
+      const [f1, f2] = v.d > 0 ? [v.x + v.hl - 8, v.x + v.hl + 72] : [v.x - v.hl - 72, v.x - v.hl + 8]
+      const inFront = (q) => q.x > f1 && q.x < f2 && Math.abs(q.z - v.z) < v.hw + R + 6
       const byPlayer = inFront(p)
       const blockedAhead = byPlayer || npcState.current.some(inFront)
-      if (!blockedAhead) v.x += v.speed * dt
-      // kapag hinarangan mo ang jeep ng matagal, lalabas ang driver at magagalit
+      // nearest vehicle ahead in the same lane
+      let lead = null, leadI = -1, gap = 1e9
+      for (let j = 0; j < VT.length; j++) {
+        const w = VT[j]
+        if (w === v || w.d !== v.d || Math.abs(w.z - v.z) >= v.hw + w.hw) continue
+        const dx = (w.x - v.x) * v.d
+        if (dx <= 0) continue
+        const g2 = dx - v.hl - w.hl
+        if (g2 < gap) { gap = g2; lead = w; leadI = j }
+      }
+      let spd = v.speed
+      if (lead && gap < 80 && Math.abs(lead.speed) < Math.abs(spd)) spd = lead.speed // slow down to the speed of the vehicle ahead
+      const touching = !!lead && gap <= 14
+      if (!blockedAhead && !touching) v.x += spd * dt
+      // touching for a while: both drivers get out and argue with each other
+      v.touchT = touching ? (v.touchT || 0) + dt : 0
+      if (v.touchT > 0.8) {
+        const xc = v.x + v.d * (v.hl + Math.max(gap, 0) / 2)
+        v.fight = lead.fight = 0.4
+        v.foe = leadI; lead.foe = i
+        v.fx = lead.fx = xc
+        v.role = -1; lead.role = 1
+      }
+      // if you block it for long, the driver gets out and gets angry at you
       v.wait = byPlayer ? (v.wait || 0) + dt : Math.max(0, (v.wait || 0) - dt * 2)
-      if (v.wait > 1.4) v.tgt = 1
+      if (v.fight > 0 || v.wait > 1.4) v.tgt = 1
       else if (v.wait < 0.4) v.tgt = 0
       v.out = (v.out || 0) + ((v.tgt || 0) - (v.out || 0)) * Math.min(1, dt * 5)
       if (v.x > WW + 100) v.x = -100
@@ -1533,14 +1634,28 @@ export default function Scene3D({ bridge, look }) {
         const show = v.out > 0.03
         dr.visible = show
         if (show) {
-          const side = p.z >= v.z ? 1 : -1
-          const cabX = v.x + v.d * 40, oz = v.z + side * (6 + 32 * v.out)
-          dr.position.set(cabX * S, 0, oz * S)
+          const fighting = v.fight > 0
+          const cabX = v.x + v.d * (v.hl - 18)
+          let px, oz, face
+          if (fighting) {
+            // step out toward the road center, next to the contact point, facing the other driver
+            const fside = v.z < (v.z < 900 ? 618 : 1780) ? 1 : -1
+            px = cabX + (v.fx + v.d * (v.role * 14) - cabX) * v.out
+            oz = v.z + fside * (v.hw - 21 + 32 * v.out)
+            face = (-v.role * v.d) > 0 ? Math.PI / 2 : -Math.PI / 2
+          } else {
+            const side = p.z >= v.z ? 1 : -1
+            px = cabX
+            oz = v.z + side * (v.hw - 21 + 32 * v.out)
+            face = Math.atan2(p.x - cabX, p.z - oz)
+          }
+          dr.position.set(px * S, 0, oz * S)
           dr.scale.setScalar(0.5 + 0.5 * v.out)
-          dr.rotation.y = Math.atan2(p.x - cabX, p.z - oz)
+          dr.rotation.y = face
           v.sayT = (v.sayT || 0) + dt
           dr.userData.say = v.out > 0.85
-          dr.userData.sayText = DRIVER_LINES[(Math.floor(v.sayT / 2.4) + i) % DRIVER_LINES.length]
+          const lines = fighting ? FIGHT_LINES : DRIVER_LINES
+          dr.userData.sayText = lines[(Math.floor(v.sayT / 2.4) + i) % lines.length]
           if (v.out > 0.5) { v.honkT = (v.honkT || 0) - dt; if (v.honkT <= 0) { honk(); v.honkT = 2.4 } } else v.honkT = 0
         } else { v.sayT = 0; v.honkT = 0 }
       }
@@ -1553,7 +1668,7 @@ export default function Scene3D({ bridge, look }) {
       if (r.active) {
         // wait behind slower traffic
         const ax = r.x + Math.cos(r.yaw) * 90, az = r.z - Math.sin(r.yaw) * 90
-        const stuck = vehicles.current.some((v) => ax > v.x - 68 && ax < v.x + 68 && az > v.z - 37 && az < v.z + 37)
+        const stuck = vehicles.current.some((v) => ax > v.x - v.hl - 10 && ax < v.x + v.hl + 10 && az > v.z - v.hw - 10 && az < v.z + v.hw + 10)
         let move = stuck ? 0 : RIDE_SPEED * dt
         while (move > 0 && r.seg < r.route.length - 1) {
           const [tx, tz] = r.route[r.seg + 1]
@@ -1620,7 +1735,7 @@ export default function Scene3D({ bridge, look }) {
     bridge.mini = {
       x: p.x, z: p.z, face: p.face,
       jeeps: [
-        ...vehicles.current.map((v) => ({ x: v.x, z: v.z, i: v.i })),
+        ...vehicles.current.map((v) => ({ x: v.x, z: v.z, i: v.i, kind: v.kind })),
         ...rides.current.map((r, k) => ({ x: r.x, z: r.z, i: PARKED[k][2] })),
       ],
       npcs: npcState.current.filter((n) => n.mode !== 'gone').map((n) => ({ x: n.x, z: n.z })),
@@ -1751,7 +1866,8 @@ export default function Scene3D({ bridge, look }) {
       <Pond />
       <Fountain x={580} z={1225} />
       <Flowers />
-      <group position={[580 * S, 0, 806 * S]}>
+      <Grass palms={PALMS} poles={POLES} benches={BENCHES} parked={PARKED} touch={IS_TOUCH} />
+        <group position={[580 * S, 0, 806 * S]}>
         <Box p={[-3, 1.5, 0]} s={[0.4, 3, 0.4]} c="#8b5a2b" />
         <Box p={[3, 1.5, 0]} s={[0.4, 3, 0.4]} c="#8b5a2b" />
         <Box p={[0, 3.4, 0]} s={[8, 1.7, 0.25]} c="#8b5a2b" />
@@ -1770,7 +1886,7 @@ export default function Scene3D({ bridge, look }) {
 
       {/* traffic + parked jeepneys */}
       {vehicles.current.map((v, i) => (
-        <group key={i} ref={(g) => (jeepRefs.current[i] = g)}><Jeep color={JEEP[v.i]} /></group>
+        <group key={i} ref={(g) => (jeepRefs.current[i] = g)}>{v.kind === 'bus' ? <Bus color={BUS[v.i % BUS.length]} /> : v.kind === 'trike' ? <Trike color={TRIKE[v.i % TRIKE.length]} /> : <Jeep color={JEEP[v.i % JEEP.length]} />}</group>
       ))}
       {vehicles.current.map((v, i) => (
         <Character key={'drv' + i} ref={driverRefs.current[i]} look={DRIVER_LOOKS[i % DRIVER_LOOKS.length]} label="Manong Driver" angry bubble={DRIVER_LINES[0]} />

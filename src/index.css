@@ -34,17 +34,6 @@ input { -webkit-user-select: text; user-select: text; }
 @keyframes mg-pop { 0% { transform: scale(0.4); opacity: 0; } 60% { transform: scale(1.2); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
 @keyframes mg-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 
-/* maikling screen (landscape phone): menu nagiging side-by-side */
-@media (max-height: 560px) {
-  .elph-menu-gap { flex-direction: row !important; gap: 1rem !important; }
-  /* hindi lumiliit ang layout width ng transform, kaya hinihila ang margin papasok */
-  .elph-menu-title { transform: scale(0.6); margin: 0 -5.5rem; }
-  .elph-menu-card { padding: 0.5rem !important; gap: 0.5rem !important; }
-  .elph-menu-preview { height: 9rem !important; width: 6.5rem !important; }
-  .elph-menu-buttons { width: 11rem !important; gap: 0.4rem !important; }
-  .elph-menu-buttons > button { padding: 0.25rem 0.75rem !important; font-size: 1rem !important; }
-  .elph-menu-logged { display: none; }
-}
 @media (prefers-reduced-motion: reduce) { .elph-anim, .elph-anim * { animation: none !important; } }
 
 /* minimap: maliit sa phone, mas malaki sa PC; nakalagay sa ilalim ng clock/weather */
