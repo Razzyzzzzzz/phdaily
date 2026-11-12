@@ -1,7 +1,9 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-html, body, #root { height: 100%; margin: 0; overflow: hidden; background: #0f172a; font-family: 'Baloo 2', system-ui, sans-serif; -webkit-user-select: none; user-select: none; }
+html, body, #root { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; background: #0f172a; font-family: 'Baloo 2', system-ui, sans-serif; -webkit-user-select: none; user-select: none; }
+@supports (height: 100dvh) { html, body, #root { height: 100dvh; } }
+button { touch-action: manipulation; }
 input { -webkit-user-select: text; user-select: text; }
 @layer components {
   .btn { @apply rounded-xl border-b-4 px-4 py-2 font-extrabold text-white shadow-md transition active:translate-y-0.5 active:border-b-2 disabled:opacity-50; }
@@ -25,4 +27,26 @@ input { -webkit-user-select: text; user-select: text; }
 @keyframes elph-fly { from { transform: translateX(-10vw); } to { transform: translateX(110vw); } }
 @keyframes elph-flap { from { transform: scaleY(1); } to { transform: scaleY(0.55); } }
 @keyframes elph-float { 0% { transform: translate(0, 0) rotate(-8deg); } 50% { transform: translate(24px, -26px) rotate(6deg); } 100% { transform: translate(-14px, -10px) rotate(-4deg); } }
+@keyframes elph-rotate { 0%, 15% { transform: rotate(0deg); } 55%, 100% { transform: rotate(-90deg); } }
+@keyframes elph-hint { 0%, 85% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
+
+/* ---------- mini-games ---------- */
+@keyframes mg-pop { 0% { transform: scale(0.4); opacity: 0; } 60% { transform: scale(1.2); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes mg-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+
+/* maikling screen (landscape phone): menu nagiging side-by-side */
+@media (max-height: 560px) {
+  .elph-menu-gap { flex-direction: row !important; gap: 1rem !important; }
+  /* hindi lumiliit ang layout width ng transform, kaya hinihila ang margin papasok */
+  .elph-menu-title { transform: scale(0.6); margin: 0 -5.5rem; }
+  .elph-menu-card { padding: 0.5rem !important; gap: 0.5rem !important; }
+  .elph-menu-preview { height: 9rem !important; width: 6.5rem !important; }
+  .elph-menu-buttons { width: 11rem !important; gap: 0.4rem !important; }
+  .elph-menu-buttons > button { padding: 0.25rem 0.75rem !important; font-size: 1rem !important; }
+  .elph-menu-logged { display: none; }
+}
 @media (prefers-reduced-motion: reduce) { .elph-anim, .elph-anim * { animation: none !important; } }
+
+/* minimap: maliit sa phone, mas malaki sa PC; nakalagay sa ilalim ng clock/weather */
+.elph-minimap { width: 7rem; top: calc(max(0.5rem, env(safe-area-inset-top)) + 4.9rem); right: max(0.5rem, env(safe-area-inset-right)); }
+@media (min-height: 561px) { .elph-minimap { width: 9.5rem; } }

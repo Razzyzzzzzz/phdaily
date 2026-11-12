@@ -39,13 +39,13 @@ export default function FishingPanel({ state, onCast, onCatch, onSell, onPhase, 
   const it = result?.id && ITEMS[result.id]
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-md px-2 pb-2 sm:pb-4" style={{ animation: 'elph-pop 0.25s both' }}>
+    <div className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-md px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:pb-4" style={{ animation: 'elph-pop 0.25s both' }}>
     <div className="overflow-hidden rounded-3xl border-4 border-blue-700 bg-sky-100 shadow-2xl">
       <div className="flex items-center justify-between bg-gradient-to-b from-blue-500 to-blue-700 px-4 py-1.5 text-white">
         <span className="font-extrabold">🎣 Palaisdaan</span>
         <button onClick={onClose} aria-label="Close" className="rounded-lg border-b-2 border-red-800 bg-red-500 px-2 font-extrabold">✕</button>
       </div>
-      <div className="max-h-[46vh] overflow-y-auto p-3">
+      <div className="max-h-[46dvh] overflow-y-auto p-3">
       <div className="relative mb-3 h-28 overflow-hidden rounded-2xl border-4 border-sky-700 bg-gradient-to-b from-sky-300 via-sky-200 to-sky-500">
         <div className="absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-sky-400/60 to-transparent" />
         <span className="absolute left-3 top-3 text-3xl">☀️</span>

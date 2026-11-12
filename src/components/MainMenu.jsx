@@ -105,22 +105,22 @@ export default function MainMenu({ user, look, onPlay, onCreate, onSettings, onE
   return (
     <div className="relative flex h-full flex-col items-center justify-center gap-6 overflow-hidden bg-gradient-to-b from-sky-400 via-sky-200 to-green-200 p-4">
       <Scene />
-      <div className="relative z-10 flex flex-col items-center gap-6">
-        <Title />
-        <div className="elph-anim flex items-center gap-4 rounded-3xl bg-gradient-to-b from-white/45 to-white/20 p-4 shadow-2xl ring-2 ring-white/60 backdrop-blur-md">
+      <div className="elph-menu-gap relative z-10 flex flex-col items-center gap-6">
+        <div className="elph-menu-title"><Title /></div>
+        <div className="elph-menu-card elph-anim flex items-center gap-4 rounded-3xl bg-gradient-to-b from-white/45 to-white/20 p-4 shadow-2xl ring-2 ring-white/60 backdrop-blur-md">
           <div className="flex flex-col items-center">
-            <CharacterPreview look={look} className="h-56 w-36 cursor-grab active:cursor-grabbing sm:h-72 sm:w-52" />
+            <CharacterPreview look={look} className="elph-menu-preview h-44 w-24 cursor-grab active:cursor-grabbing sm:h-72 sm:w-52" />
             <p className="-mt-1 max-w-[9rem] truncate rounded-full border-2 border-white/70 bg-blue-900 px-4 py-0.5 text-sm font-extrabold text-white shadow-md">{user}</p>
             <p className="mt-1 text-[10px] font-bold text-blue-900/70">✋ Drag to rotate</p>
           </div>
-          <div className="flex w-56 flex-col gap-3">
+          <div className="elph-menu-buttons flex w-44 flex-col gap-3 sm:w-56">
             <button className={`btn-orange py-3 text-2xl ${hover}`} style={{ animation: `elph-pop 0.5s 0.25s both, elph-pulse 2.2s 1s infinite` }} onClick={onPlay}>▶ Play</button>
             <button className={`btn-blue ${hover}`} style={pop(1)} onClick={onCreate}>🧑 Character Creator</button>
             <button className={`btn-blue ${hover}`} style={pop(2)} onClick={onSettings}>⚙️ Settings</button>
             <button className={`btn-red ${hover}`} style={pop(3)} onClick={onExit}>🚪 Exit</button>
           </div>
         </div>
-        <p className="rounded-full bg-white/70 px-4 py-0.5 text-sm font-bold text-blue-900 shadow">Logged in as {user}</p>
+        <p className="elph-menu-logged rounded-full bg-white/70 px-4 py-0.5 text-sm font-bold text-blue-900 shadow">Logged in as {user}</p>
       </div>
     </div>
   )

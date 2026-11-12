@@ -10,6 +10,7 @@ import { weatherIndex } from '../data/gameData'
 const S = 0.05
 const JEEP = [0xef476f, 0x06d6a0, 0xffd166, 0x4cc9f0]
 // ----- umiiyak na NPC (NPCS entry na may `cry: true`) -----
+const IS_TOUCH = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches
 const CRY_TRIGGER = 110   // px: gaano kalapit ang player bago siya magsalita
 const CRY_SAY_TIME = 2.4  // seconds na nakikita ang speech bubble bago tumakbo
 const CRY_LINE_TIME = 1.9 // seconds bawat linya habang hinahabol
@@ -150,10 +151,17 @@ function Ball({ p = [0, 0, 0], r = 0.2, c = '#ffffff', s = [1, 1, 1] }) {
 }
 
 // ---------- activity animations (para sa player) ----------
-const ACT_ALIAS = { mass: 'pray', study: 'read' }
+const ACT_ALIAS = {
+  mass: 'pray', study: 'read',
+  // --- bagong activities: ginagamit ang existing o bagong animation ---
+  liga: 'basketball', volunteer: 'cleanup', sweep: 'cleanup', paint: 'cleanup',
+  quizbee: 'read', trivia: 'read', raffle: 'stroll', palaro: 'stroll', arcade: 'stroll',
+  tawad: 'talk', magtinda: 'talk', sukli: 'talk',
+  choir: 'sing', karaoke: 'sing', zumba: 'dance', adobo: 'cook', bake: 'cook',
+}
 // mga props na nakapirmi sa paligid ng character habang ginagawa ang activity
 const WORLD_PROPS = { basketball: ['hoop', 'ball'], oddjob: ['crate'], haircut: ['chair', 'cape', 'scissors'], checkup: ['bed'], hospbed: ['bed', 'blanket'], fish: ['bobber'] }
-const HAND_R = { workout: 'dumbbell', oddjob: 'hammer', fish: 'rod', tanod: 'flashlight', stroll: 'bag', cleanup: 'broom' }
+const HAND_R = { workout: 'dumbbell', oddjob: 'hammer', fish: 'rod', tanod: 'flashlight', stroll: 'bag', cleanup: 'broom', sing: 'mic', cook: 'pan' }
 const HAND_L = { workout: 'dumbbell', read: 'book', tutor: 'book' }
 
 function HandProps({ side, reg }) {
@@ -192,6 +200,14 @@ function HandProps({ side, reg }) {
           <group ref={reg(side, 'broom')} visible={false} rotation={[0.9, 0, 0]}>
             <Cyl p={[0, -0.2, 0]} a={[0.04, 0.04, 3, 6]} c="#a16207" />
             <Box p={[0, -1.6, 0]} s={[0.8, 0.35, 0.35]} c="#eab308" />
+          </group>
+          <group ref={reg(side, 'mic')} visible={false}>
+            <Cyl p={[0, -0.25, 0]} a={[0.05, 0.05, 0.5, 8]} c="#374151" />
+            <Ball p={[0, 0.05, 0]} r={0.13} c="#9ca3af" />
+          </group>
+          <group ref={reg(side, 'pan')} visible={false} rotation={[1.2, 0, 0]}>
+            <Cyl p={[0, -0.1, 0]} a={[0.5, 0.5, 0.1, 16]} c="#374151" />
+            <Box p={[0.75, -0.1, 0]} s={[0.9, 0.06, 0.12]} c="#92400e" />
           </group>
         </>
       )}
@@ -394,6 +410,34 @@ export const Character = forwardRef(function Character({ look, label, cry, bubbl
             aR.rotation.x = act === 'tanod' ? -1.25 + sn(tt * 1.5) * 0.2 : s
             bd.position.y = Math.abs(sn(tt * 9)) * 0.1
             hd.rotation.y = act === 'tanod' ? sn(tt * 0.9) * 0.5 : 0
+            break
+          }
+          case 'sing': { // kumakanta (koro / videoke) na may mikropono
+            aR.rotation.x = -2.0 + sn(tt * 2) * 0.1; aR.rotation.z = -0.5
+            aL.rotation.x = -0.4 + sn(tt * 4) * 0.3
+            hd.rotation.x = -0.12 + sn(tt * 4) * 0.08
+            bd.rotation.z = sn(tt * 2) * 0.06; bd.position.y = Math.abs(sn(tt * 4)) * 0.06
+            break
+          }
+          case 'dance': { // zumba
+            const b = Math.abs(sn(tt * 6))
+            bd.position.y = b * 0.18; bd.rotation.y = sn(tt * 3) * 0.35
+            aL.rotation.x = -1.3 - sn(tt * 3) * 1.1; aR.rotation.x = -1.3 + sn(tt * 3) * 1.1
+            aL.rotation.z = 0.5; aR.rotation.z = -0.5
+            lL.rotation.x = sn(tt * 6) * 0.5; lR.rotation.x = -sn(tt * 6) * 0.5
+            break
+          }
+          case 'cook': { // nagluluto / nagmamasa
+            aR.rotation.x = -1.2 + sn(tt * 5) * 0.25; aR.rotation.z = -0.1
+            aL.rotation.x = -1.0 + sn(tt * 5 + 1) * 0.15; aL.rotation.z = 0.2
+            bd.rotation.x = 0.12; hd.rotation.x = 0.25
+            break
+          }
+          case 'talk': { // nakikipag-usap / tumatawad
+            aR.rotation.x = -1.2 + sn(tt * 2.4) * 0.5; aR.rotation.z = -0.3
+            aL.rotation.x = -0.9 + sn(tt * 2.1 + 1) * 0.4; aL.rotation.z = 0.3
+            hd.rotation.y = sn(tt * 1.3) * 0.25
+            bd.position.y = Math.abs(sn(tt * 2.4)) * 0.04
             break
           }
           case 'haircut': { // nakaupo sa barber chair
@@ -1298,14 +1342,25 @@ export default function Scene3D({ bridge, look }) {
 
     // drag to rotate camera, wheel to zoom
     const el = gl.domElement
+    el.style.touchAction = 'none' // para gumana ang drag / pinch sa phone
     let drag = null
-    const pd = (e) => { drag = { x: e.clientX, id: e.pointerId } }
+    const ptrs = new Map()
+    let pinch0 = 0, dist0 = 0
+    const pair = () => { const [a, b] = [...ptrs.values()]; return Math.hypot(a.x - b.x, a.y - b.y) }
+    const pd = (e) => {
+      ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (ptrs.size === 2) { pinch0 = pair(); dist0 = cam.current.dist; drag = null }
+      else if (ptrs.size === 1) drag = { x: e.clientX, id: e.pointerId }
+    }
     const pm = (e) => {
+      const q = ptrs.get(e.pointerId)
+      if (q) { q.x = e.clientX; q.y = e.clientY }
+      if (ptrs.size >= 2) { if (pinch0 > 0) cam.current.dist = clamp(dist0 * pinch0 / Math.max(1, pair()), 7, 20); return } // pinch-to-zoom
       if (!drag || drag.id !== e.pointerId) return
       cam.current.yaw -= (e.clientX - drag.x) * 0.006
       drag.x = e.clientX
     }
-    const pu = () => { drag = null }
+    const pu = (e) => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch0 = 0; drag = null }
     const wheel = (e) => { cam.current.dist = clamp(cam.current.dist + e.deltaY * 0.01, 7, 20) }
     el.addEventListener('pointerdown', pd)
     el.addEventListener('pointermove', pm)
@@ -1579,7 +1634,7 @@ export default function Scene3D({ bridge, look }) {
     }
     if (c.actZ === undefined) c.actZ = 1
     c.actZ += ((bridge.act ? 0.7 : 1) - c.actZ) * (1 - Math.exp(-4 * dt))
-    const D = c.dist * c.actZ, H = D * 0.5 + 1.5
+    const D = c.dist * c.actZ * (_.camera.aspect < 0.8 ? 1.3 : 1), H = D * 0.5 + 1.5
     const ox = Math.sin(c.yaw) * D, oz = Math.cos(c.yaw) * D, oy = H - 2.2
     // pull the camera toward the player so it never goes inside a building
     let f = 1
@@ -1675,7 +1730,7 @@ export default function Scene3D({ bridge, look }) {
       <hemisphereLight ref={hemi} args={['#ffffff', '#6aa84f', 0.85]} />
       <directionalLight
         ref={light} castShadow intensity={1.5}
-        shadow-mapSize={[2048, 2048]} shadow-bias={-0.0005}
+        shadow-mapSize={IS_TOUCH ? [1024, 1024] : [2048, 2048]} shadow-bias={-0.0005}
         shadow-camera-left={-32} shadow-camera-right={32} shadow-camera-top={32} shadow-camera-bottom={-32}
         shadow-camera-near={1} shadow-camera-far={120}
       />

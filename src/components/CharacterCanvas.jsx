@@ -34,12 +34,12 @@ export default function CharacterCanvas({ look }) {
   return (
     <div className="h-full w-full touch-none" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
       <Canvas
-        shadows="percentage" dpr={[1, 2]} gl={{ alpha: true, antialias: true }}
+        shadows="percentage" dpr={[1, 1.5]} gl={{ alpha: true, antialias: true }}
         camera={{ position: [0, 2.5, 10.5], fov: 28 }}
         onCreated={({ camera }) => camera.lookAt(0, 2, 0)}
       >
         <hemisphereLight args={['#ffffff', '#6aa84f', 0.95]} />
-        <directionalLight position={[4, 9, 6]} intensity={1.6} castShadow shadow-mapSize={[1024, 1024]} shadow-bias={-0.0005} />
+        <directionalLight position={[4, 9, 6]} intensity={1.6} castShadow shadow-mapSize={[512, 512]} shadow-bias={-0.0005} />
         <directionalLight position={[-5, 4, -6]} intensity={0.5} color="#9ad1ff" />
         {/* pedestal */}
         <mesh position={[0, -0.1, 0]} receiveShadow>

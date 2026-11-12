@@ -8,7 +8,10 @@ import Joystick from './components/Joystick'
 import InventoryPanel from './components/InventoryPanel'
 import ShopPanel from './components/ShopPanel'
 import FishingPanel from './components/FishingPanel'
+import LearningPanel from './components/LearningPanel'
 import ConfirmModal from './components/ConfirmModal'
+import RotatePrompt from './components/RotatePrompt'
+import { autoLandscape } from './utils/landscape'
 import JobPanel from './components/JobPanel'
 import HouseRoom from './components/HouseRoom'
 import { MapPanel, DialogPanel, MissionsPanel, ProfilePanel, PausePanel, SettingsPanel } from './components/MiscPanels'
@@ -46,6 +49,12 @@ export default function App() {
   }
 
   useEffect(() => { bridge.paused = !!panel }, [panel])
+  // auto-pause kapag lumipat ng tab / app (mobile)
+  useEffect(() => {
+    const h = () => { if (document.hidden && screen === 'game') setPanel((p) => p || { type: 'pause' }) }
+    document.addEventListener('visibilitychange', h)
+    return () => document.removeEventListener('visibilitychange', h)
+  }, [screen])
   useEffect(() => { bridge.act = doing ? doing.act.id : panel?.type === 'fishing' ? 'fish' : null }, [doing, panel])
   useEffect(() => {
     if (!doing) { setProg(0); return }
@@ -55,7 +64,12 @@ export default function App() {
       if (k < 1) return setProg(k)
       clearInterval(id)
       dispatch({ type: 'ACTIVITY', act: doing.act })
-      notify(`${doing.act.emoji} ${doing.act.name} done!${doing.act.money ? ` +₱${doing.act.money}` : ''}`)
+      const a = doing.act
+      const got = [
+        a.money ? `+₱${a.money}` : '',
+        a.give ? Object.entries(a.give).map(([id, q]) => `${ITEMS[id]?.emoji || '🎁'}×${q}`).join(' ') : '',
+      ].filter(Boolean).join(' ')
+      notify(`${a.emoji} ${a.name} done!${got ? ' ' + got : a.id === 'raffle' ? ' Sayang, walang laman!' : ''}`)
       setDoing(null)
     }, 100)
     return () => clearInterval(id)
@@ -70,6 +84,8 @@ export default function App() {
   }, [screen, settings.speed])
   useEffect(() => {
     const h = (e) => {
+      // huwag mag-trigger ng shortcut (hal. "I") habang nagta-type sa textarea / input (paste ng module)
+      if (e.key !== 'Escape' && /INPUT|TEXTAREA|SELECT/.test(e.target?.tagName || '')) return
       if (e.key === 'Escape') { setPanel(null); setDoing(null) }
       else if (screen === 'game' && e.key.toLowerCase() === 'i') setPanel((p) => (p?.type === 'inventory' ? null : { type: 'inventory' }))
     }
@@ -82,6 +98,7 @@ export default function App() {
   const logout = () => { localStorage.removeItem('elph:session'); setUser(null); setPanel(null); setScreen('menu') }
 
   const play = () => {
+    autoLandscape() // phone: fullscreen + landscape
     if (saved?.player) { dispatch({ type: 'LOAD', state: saved }); setScreen('game') } else setScreen('create')
   }
   const startCreator = () => {
@@ -123,38 +140,58 @@ export default function App() {
 
   const btn = [['🎒', 'Inventory', 'inventory'], ['💼', 'Jobs', 'jobs'], ['📍', 'Map', 'map'], ['☰', 'Menu', 'pause']]
   return (
-    <div className="relative h-full w-full overflow-hidden">
+    <div className="relative h-full w-full overflow-hidden" onContextMenu={(e) => screen === 'game' && e.preventDefault()}>
       {screen === 'menu' && (
         <MainMenu user={user} look={saved?.player?.look || DEFAULT_LOOK} onPlay={play} onCreate={startCreator}
           onSettings={() => setPanel({ type: 'settings' })} onExit={logout} />
       )}
       {screen === 'create' && (
         <CharacterCreation defaultName={user} onBack={() => setScreen('menu')}
-          onCreate={(player) => { dispatch({ type: 'NEW', player }); setScreen('game') }} />
+          onCreate={(player) => { autoLandscape(); dispatch({ type: 'NEW', player }); setScreen('game') }} />
       )}
       {screen === 'game' && state.player && (
         <>
           <GameCanvas bridge={bridge} look={state.player.look} minutes={state.minutes} day={state.day} />
           <Hud state={state} />
-          <div className="absolute bottom-3 right-2 z-10 flex gap-2">
+          {/* menu buttons (safe-area aware) */}
+          <div className="absolute z-10 flex gap-1.5 sm:gap-2" style={{ bottom: 'max(0.5rem, env(safe-area-inset-bottom))', right: 'max(0.5rem, env(safe-area-inset-right))' }}>
             {btn.map(([icon, label, type]) => (
-              <button key={type} onClick={() => setPanel({ type })} className="flex flex-col items-center">
-                <span className="grid h-12 w-12 place-items-center rounded-xl border-b-4 border-blue-900 bg-blue-500 text-2xl shadow-lg active:translate-y-0.5">{icon}</span>
-                <span className="text-[10px] font-extrabold text-white drop-shadow">{label}</span>
+              <button key={type} onClick={() => setPanel({ type })} className="flex flex-col items-center" aria-label={label} tabIndex={-1} onMouseDown={(e) => e.preventDefault()}>
+                <span className="grid h-11 w-11 place-items-center rounded-xl border-b-4 border-blue-900 bg-blue-500 text-xl shadow-lg active:translate-y-0.5 sm:h-12 sm:w-12 sm:text-2xl">{icon}</span>
+                <span className="text-[10px] font-extrabold text-white drop-shadow">{label}{type === 'inventory' && !settings.touch ? ' [I]' : ''}</span>
               </button>
             ))}
           </div>
-          <button onClick={() => { bridge.jump = true }} aria-label="Jump"
-            className="absolute bottom-44 right-5 z-10 h-14 w-14 rounded-full border-b-4 border-blue-900 bg-blue-500 text-xl font-extrabold text-white shadow-xl active:translate-y-0.5">⤒</button>
-          <button onClick={() => bridge.doInteract?.()}
-            className={`absolute bottom-24 right-4 z-10 h-16 w-16 rounded-full border-b-4 border-orange-700 bg-orange-500 text-2xl font-extrabold text-white shadow-xl active:translate-y-0.5 ${nearby ? '' : 'opacity-50'}`}>E</button>
-          {nearby && !doing && <div className="absolute bottom-28 left-1/2 z-10 -translate-x-1/2 rounded-full bg-slate-900/80 px-4 py-1 text-sm font-bold text-white">{nearby.label}</div>}
-          {settings.touch && <div className="absolute bottom-4 left-4 z-10"><Joystick vec={bridge.vec} /></div>}
+          {/* action buttons: malaki sa touch, maliit sa PC (may keyboard) */}
+          <div className="absolute z-10 flex items-end gap-2" style={{ bottom: 'calc(max(0.5rem, env(safe-area-inset-bottom)) + 4.4rem)', right: 'max(0.75rem, env(safe-area-inset-right))' }}>
+            <button aria-label="Jump" tabIndex={-1} onPointerDown={(e) => { e.preventDefault(); bridge.jump = true }}
+              className={`${settings.touch ? 'h-14 w-14 text-xl' : 'h-11 w-11 text-base'} rounded-full border-b-4 border-blue-900 bg-blue-500 font-extrabold text-white shadow-xl active:translate-y-0.5`}>⤒</button>
+            <button aria-label="Interact" tabIndex={-1} onMouseDown={(e) => e.preventDefault()} onClick={() => bridge.doInteract?.()}
+              className={`${settings.touch ? 'h-16 w-16 text-2xl' : 'h-12 w-12 text-lg'} rounded-full border-b-4 border-orange-700 bg-orange-500 font-extrabold text-white shadow-xl active:translate-y-0.5 ${nearby ? '' : 'opacity-50'}`}>E</button>
+          </div>
+          {nearby && !doing && (
+            <div className="absolute left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-900/80 px-4 py-1 text-sm font-bold text-white" style={{ bottom: 'calc(max(0.5rem, env(safe-area-inset-bottom)) + 4.4rem)' }}>
+              {!settings.touch && <kbd className="mr-2 rounded bg-white px-1.5 text-xs font-extrabold text-slate-900">E</kbd>}{nearby.label}
+            </div>
+          )}
+          {settings.touch && (
+            <div className="absolute z-10" style={{ bottom: 'max(1rem, env(safe-area-inset-bottom))', left: 'max(1rem, env(safe-area-inset-left))' }}>
+              <Joystick vec={bridge.vec} />
+            </div>
+          )}
+          {!settings.touch && (
+            <div className="pointer-events-none absolute bottom-3 left-3 z-10 hidden rounded-full bg-slate-900/70 px-3 py-1 text-xs font-bold text-white sm:block" style={{ animation: 'elph-hint 16s forwards' }}>
+              WASD move · Space jump · E interact · I inventory · drag to rotate · scroll to zoom
+            </div>
+          )}
         </>
       )}
 
       {panel?.type === 'inventory' && <InventoryPanel inventory={state.inventory} onUse={use} onDrop={(id) => dispatch({ type: 'DROP', id })} onClose={close} />}
-      {panel?.type === 'shop' && <ShopPanel shopId={panel.id} money={state.money} energy={state.energy} hunger={state.hunger} onBuy={buy} onActivity={doActivity} onWork={() => setPanel({ type: 'jobs' })} onClose={close} />}
+      {panel?.type === 'shop' && <ShopPanel shopId={panel.id} money={state.money} energy={state.energy} hunger={state.hunger} onBuy={buy} onActivity={doActivity} onLearn={() => setPanel({ type: 'learn' })} onWork={() => setPanel({ type: 'jobs' })} onClose={close} />}
+      {panel?.type === 'learn' && <LearningPanel modules={state.modules} learn={state.learn} energy={state.energy} hunger={state.hunger} notify={notify}
+        onAdd={(module) => dispatch({ type: 'MODULE_ADD', module })} onDelete={(id) => dispatch({ type: 'MODULE_DEL', id })}
+        onFinish={(hash, correct, total) => dispatch({ type: 'MODULE_DONE', hash, correct, total })} onClose={close} />}
       {panel?.type === 'fishing' && <FishingPanel state={state} onCast={cast} onCatch={caught} onSell={sellFish} onPhase={(p) => { bridge.actPhase = p }} onClose={close} />}
       {panel?.type === 'jobs' && <JobPanel here={here} state={state} notify={notify} onClose={close}
         onComplete={(id) => { dispatch({ type: 'WORK', id }); notify(`✅ +₱${JOBS[id].pay} earned`) }} />}
@@ -187,6 +224,7 @@ export default function App() {
       {confirm && (
         <ConfirmModal {...confirm} onCancel={() => setConfirm(null)} onConfirm={() => { const go = confirm.onConfirm; setConfirm(null); go() }} />
       )}
+      {screen === 'game' && <RotatePrompt />}
       {toast && <div className="absolute left-1/2 top-24 z-50 -translate-x-1/2 rounded-full bg-yellow-300 px-4 py-2 font-extrabold text-slate-900 shadow-lg">{toast}</div>}
     </div>
   )
