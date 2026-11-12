@@ -43,38 +43,38 @@ export const SHOPS = {
 // cost = pesos paid, money = pesos earned, energy/hunger/health = change (0-100 stats), minutes = game time passed.
 export const ACTIVITIES = {
   gym: [
-    { id: 'workout', emoji: '🏋️', name: 'Workout', text: 'Lift and sweat it out.', cost: 0, energy: -20, hunger: -15, health: 10, minutes: 60 },
-    { id: 'basketball', emoji: '🏀', name: 'Play Basketball', text: 'Laro tayo, pre!', cost: 20, energy: -25, hunger: -15, health: 8, minutes: 90 },
+    { id: 'workout', secs: 6, emoji: '🏋️', name: 'Workout', text: 'Lift and sweat it out.', cost: 0, energy: -20, hunger: -15, health: 10, minutes: 60 },
+    { id: 'basketball', secs: 8, emoji: '🏀', name: 'Play Basketball', text: 'Laro tayo, pre!', cost: 20, energy: -25, hunger: -15, health: 8, minutes: 90 },
   ],
   hospital: [
-    { id: 'checkup', emoji: '🩺', name: 'Check-up', text: 'Full check-up and treatment.', cost: 100, health: 50, minutes: 45 },
-    { id: 'hospbed', emoji: '🛏️', name: 'Rest in Ward', text: 'Rest and recover.', cost: 60, energy: 25, health: 15, minutes: 120 },
+    { id: 'checkup', secs: 5, emoji: '🩺', name: 'Check-up', text: 'Full check-up and treatment.', cost: 100, health: 50, minutes: 45 },
+    { id: 'hospbed', secs: 6, emoji: '🛏️', name: 'Rest in Ward', text: 'Rest and recover.', cost: 60, energy: 25, health: 15, minutes: 120 },
   ],
   church: [
-    { id: 'pray', emoji: '🙏', name: 'Pray', text: 'Quiet moment of peace.', cost: 0, energy: 5, health: 3, minutes: 20 },
-    { id: 'mass', emoji: '⛪', name: 'Attend Mass', text: 'Attend the service.', cost: 0, energy: 8, health: 5, minutes: 60 },
+    { id: 'pray', secs: 5, emoji: '🙏', name: 'Pray', text: 'Quiet moment of peace.', cost: 0, energy: 5, health: 3, minutes: 20 },
+    { id: 'mass', secs: 7, emoji: '⛪', name: 'Attend Mass', text: 'Attend the service.', cost: 0, energy: 8, health: 5, minutes: 60 },
   ],
   barangay: [
-    { id: 'cleanup', emoji: '🧹', name: 'Community Clean-up', text: 'Volunteer and get a small allowance.', cost: 0, money: 120, energy: -15, hunger: -10, minutes: 60 },
+    { id: 'cleanup', secs: 7, emoji: '🧹', name: 'Community Clean-up', text: 'Volunteer and get a small allowance.', cost: 0, money: 120, energy: -15, hunger: -10, minutes: 60 },
   ],
   school: [
-    { id: 'study', emoji: '📖', name: 'Attend Class', text: 'Learn something new.', cost: 0, energy: -15, hunger: -8, minutes: 90 },
-    { id: 'tutor', emoji: '🧑‍🏫', name: 'Tutor Students', text: 'Part-time tutoring.', cost: 0, money: 180, energy: -22, hunger: -12, minutes: 120 },
+    { id: 'study', secs: 6, emoji: '📖', name: 'Attend Class', text: 'Learn something new.', cost: 0, energy: -15, hunger: -8, minutes: 90 },
+    { id: 'tutor', secs: 7, emoji: '🧑‍🏫', name: 'Tutor Students', text: 'Part-time tutoring.', cost: 0, money: 180, energy: -22, hunger: -12, minutes: 120 },
   ],
   police: [
-    { id: 'tanod', emoji: '🚓', name: 'Tanod Duty', text: 'Help patrol the barangay.', cost: 0, money: 160, energy: -22, hunger: -12, minutes: 120 },
+    { id: 'tanod', secs: 7, emoji: '🚓', name: 'Tanod Duty', text: 'Help patrol the barangay.', cost: 0, money: 160, energy: -22, hunger: -12, minutes: 120 },
   ],
   library: [
-    { id: 'read', emoji: '📚', name: 'Read a Book', text: 'Relax with a good book.', cost: 0, energy: -5, health: 2, minutes: 60 },
+    { id: 'read', secs: 6, emoji: '📚', name: 'Read a Book', text: 'Relax with a good book.', cost: 0, energy: -5, health: 2, minutes: 60 },
   ],
   barber: [
-    { id: 'haircut', emoji: '✂️', name: 'Haircut', text: 'Fresh look, fresh start.', cost: 80, energy: 3, health: 2, minutes: 30 },
+    { id: 'haircut', secs: 5, emoji: '✂️', name: 'Haircut', text: 'Fresh look, fresh start.', cost: 80, energy: 3, health: 2, minutes: 30 },
   ],
   hardware: [
-    { id: 'oddjob', emoji: '🔨', name: 'Odd Jobs', text: 'Carry and fix things for pay.', cost: 0, money: 190, energy: -25, hunger: -15, minutes: 120 },
+    { id: 'oddjob', secs: 7, emoji: '🔨', name: 'Odd Jobs', text: 'Carry and fix things for pay.', cost: 0, money: 190, energy: -25, hunger: -15, minutes: 120 },
   ],
   mall: [
-    { id: 'stroll', emoji: '🛍️', name: 'Window Shopping', text: 'Walk around and relax.', cost: 0, energy: -3, health: 1, minutes: 45 },
+    { id: 'stroll', secs: 6, emoji: '🛍️', name: 'Window Shopping', text: 'Walk around and relax.', cost: 0, energy: -3, health: 1, minutes: 45 },
   ],
 }
 

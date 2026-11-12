@@ -28,6 +28,8 @@ export default function App() {
   const [nearby, setNearby] = useState(null)
   const [toast, setToast] = useState('')
   const [confirm, setConfirm] = useState(null)
+  const [doing, setDoing] = useState(null) // { act, placeId, dur } habang ginagawa ang activity
+  const [prog, setProg] = useState(0)
   const timer = useRef()
   const bridge = useRef({ vec: { x: 0, y: 0 }, paused: false }).current
   const saved = user ? read(saveKey(user)) : null
@@ -44,6 +46,20 @@ export default function App() {
   }
 
   useEffect(() => { bridge.paused = !!panel }, [panel])
+  useEffect(() => { bridge.act = doing ? doing.act.id : panel?.type === 'fishing' ? 'fish' : null }, [doing, panel])
+  useEffect(() => {
+    if (!doing) { setProg(0); return }
+    const t0 = Date.now()
+    const id = setInterval(() => {
+      const k = (Date.now() - t0) / doing.dur
+      if (k < 1) return setProg(k)
+      clearInterval(id)
+      dispatch({ type: 'ACTIVITY', act: doing.act })
+      notify(`${doing.act.emoji} ${doing.act.name} done!${doing.act.money ? ` +₱${doing.act.money}` : ''}`)
+      setDoing(null)
+    }, 100)
+    return () => clearInterval(id)
+  }, [doing])
   useEffect(() => { bridge.onNearby = setNearby; bridge.onInteract = onInteract })
   useEffect(() => { write(SETTINGS, settings) }, [settings])
   useEffect(() => { if (screen === 'game' && user && state.player) write(saveKey(user), state) }, [state, screen])
@@ -54,7 +70,7 @@ export default function App() {
   }, [screen, settings.speed])
   useEffect(() => {
     const h = (e) => {
-      if (e.key === 'Escape') setPanel(null)
+      if (e.key === 'Escape') { setPanel(null); setDoing(null) }
       else if (screen === 'game' && e.key.toLowerCase() === 'i') setPanel((p) => (p?.type === 'inventory' ? null : { type: 'inventory' }))
     }
     window.addEventListener('keydown', h)
@@ -85,8 +101,8 @@ export default function App() {
     if (state.money < (act.cost || 0)) return notify('Not enough money!')
     if (act.energy < 0 && state.energy + act.energy < 0) return notify('Too tired!')
     if (act.hunger < 0 && state.hunger + act.hunger < 0) return notify('Too hungry!')
-    dispatch({ type: 'ACTIVITY', act })
-    notify(`${act.emoji} ${act.name}${act.money ? ` +₱${act.money}` : ''}`)
+    close() // isara ang panel para makita ang character na ginagawa talaga ang activity
+    setDoing({ act, placeId, dur: (act.secs || 5) * 1000 })
   }
   const cast = () => {
     if (state.energy < 5) { notify('Too tired to fish!'); return false }
@@ -101,7 +117,7 @@ export default function App() {
   }
   const use = (id) => { dispatch({ type: 'USE', id }); notify(`${ITEMS[id].emoji} Used ${ITEMS[id].name}`) }
   const sleep = () => { dispatch({ type: 'SLEEP' }); close(); notify(`😴 Good morning! Day ${state.day + 1}`) }
-  const travel = (id) => { bridge.teleport?.(id); close() }
+  const travel = (id) => { setDoing(null); bridge.teleport?.(id); close() }
 
   if (!user) return <AuthScreen onAuth={login} />
 
@@ -128,16 +144,18 @@ export default function App() {
               </button>
             ))}
           </div>
+          <button onClick={() => { bridge.jump = true }} aria-label="Jump"
+            className="absolute bottom-44 right-5 z-10 h-14 w-14 rounded-full border-b-4 border-blue-900 bg-blue-500 text-xl font-extrabold text-white shadow-xl active:translate-y-0.5">⤒</button>
           <button onClick={() => bridge.doInteract?.()}
             className={`absolute bottom-24 right-4 z-10 h-16 w-16 rounded-full border-b-4 border-orange-700 bg-orange-500 text-2xl font-extrabold text-white shadow-xl active:translate-y-0.5 ${nearby ? '' : 'opacity-50'}`}>E</button>
-          {nearby && <div className="absolute bottom-28 left-1/2 z-10 -translate-x-1/2 rounded-full bg-slate-900/80 px-4 py-1 text-sm font-bold text-white">{nearby.label}</div>}
+          {nearby && !doing && <div className="absolute bottom-28 left-1/2 z-10 -translate-x-1/2 rounded-full bg-slate-900/80 px-4 py-1 text-sm font-bold text-white">{nearby.label}</div>}
           {settings.touch && <div className="absolute bottom-4 left-4 z-10"><Joystick vec={bridge.vec} /></div>}
         </>
       )}
 
       {panel?.type === 'inventory' && <InventoryPanel inventory={state.inventory} onUse={use} onDrop={(id) => dispatch({ type: 'DROP', id })} onClose={close} />}
       {panel?.type === 'shop' && <ShopPanel shopId={panel.id} money={state.money} energy={state.energy} hunger={state.hunger} onBuy={buy} onActivity={doActivity} onWork={() => setPanel({ type: 'jobs' })} onClose={close} />}
-      {panel?.type === 'fishing' && <FishingPanel state={state} onCast={cast} onCatch={caught} onSell={sellFish} onClose={close} />}
+      {panel?.type === 'fishing' && <FishingPanel state={state} onCast={cast} onCatch={caught} onSell={sellFish} onPhase={(p) => { bridge.actPhase = p }} onClose={close} />}
       {panel?.type === 'jobs' && <JobPanel here={here} state={state} notify={notify} onClose={close}
         onComplete={(id) => { dispatch({ type: 'WORK', id }); notify(`✅ +₱${JOBS[id].pay} earned`) }} />}
       {panel?.type === 'map' && <MapPanel onGo={travel} onClose={close} />}
@@ -152,6 +170,20 @@ export default function App() {
           title: 'Reset Progress?', message: 'Delete saved progress? This cannot be undone.',
           confirmText: 'Yes, delete', onConfirm: () => { localStorage.removeItem(saveKey(user)); close(); setScreen('menu') },
         })} onClose={close} />}
+      {doing && (
+        <div className="absolute inset-x-0 bottom-32 z-30 mx-auto w-[min(92%,22rem)] rounded-2xl border-4 border-blue-700 bg-sky-100/95 p-3 shadow-2xl sm:bottom-6 sm:w-[min(50%,22rem)]" style={{ animation: 'elph-pop 0.25s both' }}>
+          <div className="flex items-center gap-3">
+            <span className="animate-bounce text-4xl">{doing.act.emoji}</span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-extrabold leading-tight text-blue-900">{doing.act.name}...</p>
+              <div className="mt-1 h-4 overflow-hidden rounded-full border-2 border-slate-900/60 bg-slate-700">
+                <div className="h-full bg-gradient-to-r from-green-400 to-yellow-300" style={{ width: `${Math.round(prog * 100)}%` }} />
+              </div>
+            </div>
+            <button className="btn-red px-3 py-1" onClick={() => setDoing(null)} aria-label="Cancel">✕</button>
+          </div>
+        </div>
+      )}
       {confirm && (
         <ConfirmModal {...confirm} onCancel={() => setConfirm(null)} onConfirm={() => { const go = confirm.onConfirm; setConfirm(null); go() }} />
       )}

@@ -149,9 +149,157 @@ function Ball({ p = [0, 0, 0], r = 0.2, c = '#ffffff', s = [1, 1, 1] }) {
   )
 }
 
+// ---------- activity animations (para sa player) ----------
+const ACT_ALIAS = { mass: 'pray', study: 'read' }
+// mga props na nakapirmi sa paligid ng character habang ginagawa ang activity
+const WORLD_PROPS = { basketball: ['hoop', 'ball'], oddjob: ['crate'], haircut: ['chair', 'cape', 'scissors'], checkup: ['bed'], hospbed: ['bed', 'blanket'], fish: ['bobber'] }
+const HAND_R = { workout: 'dumbbell', oddjob: 'hammer', fish: 'rod', tanod: 'flashlight', stroll: 'bag', cleanup: 'broom' }
+const HAND_L = { workout: 'dumbbell', read: 'book', tutor: 'book' }
+
+function HandProps({ side, reg }) {
+  const R = side === 'R'
+  return (
+    <group position={[0, -0.9, 0]}>
+      <group ref={reg(side, 'dumbbell')} visible={false} rotation={[0, 0, Math.PI / 2]}>
+        <Cyl a={[0.05, 0.05, 0.9, 8]} c="#9ca3af" />
+        <Cyl p={[0, 0.42, 0]} a={[0.2, 0.2, 0.16, 12]} c="#1f2937" />
+        <Cyl p={[0, -0.42, 0]} a={[0.2, 0.2, 0.16, 12]} c="#1f2937" />
+      </group>
+      {!R && (
+        <group ref={reg(side, 'book')} visible={false}>
+          <Box p={[0, -0.28, 0]} s={[0.8, 0.04, 0.6]} c="#2563eb" cast={false} />
+          <Box p={[0, -0.22, 0]} s={[0.72, 0.08, 0.52]} c="#f8fafc" cast={false} />
+        </group>
+      )}
+      {R && (
+        <>
+          <group ref={reg(side, 'hammer')} visible={false}>
+            <Cyl p={[0, -0.45, 0]} a={[0.05, 0.05, 1, 8]} c="#92400e" />
+            <Box p={[0, -1, 0]} s={[0.5, 0.26, 0.26]} c="#6b7280" />
+          </group>
+          <group ref={reg(side, 'rod')} visible={false} rotation={[-1.2, 0, 0]}>
+            <Cyl p={[0, -1.3, 0]} a={[0.03, 0.05, 2.6, 6]} c="#a16207" />
+            <Cyl p={[0.1, -0.1, 0]} a={[0.12, 0.12, 0.1, 10]} c="#374151" r={[0, 0, Math.PI / 2]} />
+          </group>
+          <group ref={reg(side, 'flashlight')} visible={false}>
+            <Cyl p={[0, -0.3, 0]} a={[0.1, 0.12, 0.5, 8]} c="#fbbf24" />
+            <mesh position={[0, -1.1, 0]} rotation-x={Math.PI}><coneGeometry args={[0.5, 1.1, 12]} /><meshBasicMaterial color="#fff3a0" transparent opacity={0.3} depthWrite={false} /></mesh>
+          </group>
+          <group ref={reg(side, 'bag')} visible={false}>
+            <Box p={[0, -0.5, 0]} s={[0.55, 0.6, 0.28]} c="#f472b6" />
+            <mesh position={[0, -0.12, 0]}><torusGeometry args={[0.14, 0.02, 6, 12, Math.PI]} /><meshBasicMaterial color="#9d174d" /></mesh>
+          </group>
+          <group ref={reg(side, 'broom')} visible={false} rotation={[0.9, 0, 0]}>
+            <Cyl p={[0, -0.2, 0]} a={[0.04, 0.04, 3, 6]} c="#a16207" />
+            <Box p={[0, -1.6, 0]} s={[0.8, 0.35, 0.35]} c="#eab308" />
+          </group>
+        </>
+      )}
+    </group>
+  )
+}
+
+function ActWorld({ reg, regA }) {
+  return (
+    <group>
+      {/* basketball hoop (nasa gilid) + bola */}
+      <group ref={reg('hoop')} visible={false}>
+        <Cyl p={[4.3, 2.6, 0]} a={[0.13, 0.16, 5.2, 10]} c="#4b5563" />
+        <Box p={[3.55, 5.2, 0]} s={[0.12, 1.7, 2.3]} c="#f8fafc" />
+        <Box p={[3.5, 4.95, 0]} s={[0.05, 0.8, 1]} c="#ef4444" cast={false} />
+        <Box p={[3.9, 4.6, 0]} s={[0.9, 0.08, 0.08]} c="#4b5563" />
+        <mesh position={[3, 4.6, 0]} rotation-x={Math.PI / 2}><torusGeometry args={[0.45, 0.05, 8, 20]} /><meshLambertMaterial color="#f97316" /></mesh>
+        <mesh position={[3, 4.2, 0]}><cylinderGeometry args={[0.45, 0.28, 0.75, 10, 1, true]} /><meshBasicMaterial color="#ffffff" wireframe /></mesh>
+      </group>
+      <group ref={reg('ball')} visible={false}>
+        <mesh castShadow><sphereGeometry args={[0.33, 16, 12]} /><meshLambertMaterial color="#f97316" /></mesh>
+        <mesh><torusGeometry args={[0.335, 0.012, 6, 20]} /><meshBasicMaterial color="#1f2937" /></mesh>
+        <mesh rotation-y={Math.PI / 2}><torusGeometry args={[0.335, 0.012, 6, 20]} /><meshBasicMaterial color="#1f2937" /></mesh>
+      </group>
+      {/* kahon para sa pagpupukpok */}
+      <group ref={reg('crate')} visible={false}>
+        <Box p={[0, 0.5, 1.4]} s={[1.7, 1, 1.1]} c="#b45309" />
+        <Box p={[0, 1.02, 1.4]} s={[1.8, 0.08, 1.2]} c="#d97706" />
+      </group>
+      {/* barber chair + cape + gunting */}
+      <group ref={reg('chair')} visible={false}>
+        <Cyl p={[0, 0.08, -0.15]} a={[0.8, 0.9, 0.16, 16]} c="#374151" />
+        <Cyl p={[0, 0.55, -0.15]} a={[0.12, 0.12, 0.9, 8]} c="#9ca3af" />
+        <Box p={[0, 1, -0.15]} s={[1.5, 0.22, 1.3]} c="#dc2626" />
+        <Box p={[0, 1.7, -0.8]} s={[1.5, 1.4, 0.22]} c="#dc2626" />
+        <Box p={[-0.85, 1.3, -0.1]} s={[0.15, 0.15, 1]} c="#9ca3af" />
+        <Box p={[0.85, 1.3, -0.1]} s={[0.15, 0.15, 1]} c="#9ca3af" />
+        <Box p={[0, 0.5, 1.05]} s={[1, 0.15, 0.5]} c="#9ca3af" />
+      </group>
+      <group ref={reg('cape')} visible={false}>
+        <Box p={[0, 1.9, 0.12]} s={[1.9, 1.5, 0.95]} c="#93c5fd" />
+      </group>
+      <group ref={reg('scissors')} visible={false}>
+        <mesh ref={regA('sc1')}><boxGeometry args={[0.07, 0.8, 0.03]} /><meshLambertMaterial color="#e5e7eb" /></mesh>
+        <mesh ref={regA('sc2')}><boxGeometry args={[0.07, 0.8, 0.03]} /><meshLambertMaterial color="#d1d5db" /></mesh>
+        <mesh position={[0, -0.5, 0]}><torusGeometry args={[0.12, 0.03, 6, 12]} /><meshLambertMaterial color="#dc2626" /></mesh>
+      </group>
+      {/* hospital bed */}
+      <group ref={reg('bed')} visible={false}>
+        <Box p={[0, 0.3, -0.1]} s={[2.4, 0.4, 5.4]} c="#cbd5e1" />
+        <Box p={[0, 0.7, -0.1]} s={[2.2, 0.35, 5.2]} c="#f8fafc" />
+        <Box p={[0, 1, -1.5]} s={[1.3, 0.25, 1.1]} c="#e0f2fe" />
+        <Box p={[0, 0.9, -2.8]} s={[2.4, 1.4, 0.15]} c="#94a3b8" />
+      </group>
+      <group ref={reg('blanket')} visible={false}>
+        <Box p={[0, 1.5, 1]} s={[2.3, 0.25, 2.2]} c="#60a5fa" />
+      </group>
+      {/* bobber + linya sa pangingisda */}
+      <group ref={reg('bobber')} visible={false}>
+        <mesh ref={regA('bob')} position={[0.55, 0.12, 4.2]}>
+          <sphereGeometry args={[0.18, 10, 8]} /><meshLambertMaterial color="#ef4444" />
+        </mesh>
+        <mesh ref={regA('ring')} position={[0.55, 0.13, 4.2]} rotation-x={-Math.PI / 2}>
+          <ringGeometry args={[0.35, 0.42, 20]} /><meshBasicMaterial color="#ffffff" transparent opacity={0.5} depthWrite={false} />
+        </mesh>
+        <mesh position={[0.55, 1.73, 3.54]} rotation-x={2.75}><cylinderGeometry args={[0.012, 0.012, 3.48, 4]} /><meshBasicMaterial color="#f1f5f9" /></mesh>
+      </group>
+    </group>
+  )
+}
+
+// ---------- galit na jeepney driver (lumalabas kapag hinarangan mo ang jeep) ----------
+const DRIVER_LOOKS = [
+  { skin: '#8d5524', hair: '#1b1b1b', shirt: '#fcd116', gender: 'male', hairStyle: 0 },
+  { skin: '#c68642', hair: '#2b1b12', shirt: '#0038a8', gender: 'male', hairStyle: 1 },
+  { skin: '#e0ac69', hair: '#3b2417', shirt: '#ef4444', gender: 'male', hairStyle: 0 },
+  { skin: '#a9743a', hair: '#1b1b1b', shirt: '#16a34a', gender: 'male', hairStyle: 1 },
+  { skin: '#f1c27d', hair: '#4a2c17', shirt: '#f97316', gender: 'male', hairStyle: 0 },
+  { skin: '#8d5524', hair: '#555555', shirt: '#7c3aed', gender: 'male', hairStyle: 1 },
+]
+const DRIVER_LINES = [
+  'Hoy! Padaan naman!', 'Umalis ka diyan!', 'Nakaharang ka, pare!', 'Gusto mo bang masagasaan?!',
+  'Tabi! Late na ako!', 'Aba, ayaw pang umalis!', 'Mga pasahero ko, hoy!', 'Beep beep! Dyan ka pa!',
+]
+let _ac
+function honk() { // beep-beep ng busina (Web Audio, walang sound file)
+  try {
+    _ac = _ac || new (window.AudioContext || window.webkitAudioContext)()
+    if (_ac.state === 'suspended') _ac.resume()
+    ;[0, 0.45].forEach((d) => [392, 494].forEach((f) => {
+      const t0 = _ac.currentTime + d, o = _ac.createOscillator(), g = _ac.createGain()
+      o.type = 'square'; o.frequency.value = f
+      g.gain.setValueAtTime(0.0001, t0)
+      g.gain.exponentialRampToValueAtTime(0.05, t0 + 0.03)
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.32)
+      o.connect(g); g.connect(_ac.destination); o.start(t0); o.stop(t0 + 0.36)
+    }))
+  } catch { /* walang audio */ }
+}
+
 // chibi 3D character: malaking ulo, anime na mata (kumukurap), buhok na may bangs,
 // uniform (babae: ribbon + palda + medyas) / hoodie (lalaki)
-export const Character = forwardRef(function Character({ look, label, cry, bubble }, ref) {
+export const Character = forwardRef(function Character({ look, label, cry, bubble, acts, angry }, ref) {
+  const veinRef = useRef()
+  const wp = useRef({}), an = useRef({}), hp = useRef({ R: {}, L: {} })
+  const regW = (k) => (m) => { wp.current[k] = m }
+  const regA = (k) => (m) => { an.current[k] = m }
+  const regH = (s, k) => (m) => { hp.current[s][k] = m }
   const fem = look.gender === 'female'
   const st = look.hairStyle ?? 0
   const body = useRef(), legL = useRef(), legR = useRef(), armL = useRef(), armR = useRef()
@@ -172,6 +320,141 @@ export const Character = forwardRef(function Character({ look, label, cry, bubbl
     // kurap
     const bl = (clock.elapsedTime + blinkOff) % 3.8 < 0.12 ? 0.1 : 1
     eyeRefs.current.forEach((e) => { if (e) e.scale.y = bl })
+    if (acts) {
+      const act = ACT_ALIAS[g.userData.act] || g.userData.act || null
+      const tt = clock.elapsedTime
+      const sn = Math.sin
+      const aL = armL.current, aR = armR.current, lL = legL.current, lR = legR.current, bd = body.current, hd = head.current
+      aL.rotation.z = 0; aR.rotation.z = 0; hd.rotation.x = 0; hd.rotation.y = 0
+      bd.rotation.set(0, 0, 0); bd.position.x = 0; bd.position.z = 0
+      const wl = WORLD_PROPS[act] || []
+      for (const k in wp.current) if (wp.current[k]) wp.current[k].visible = wl.includes(k)
+      for (const sd of ['R', 'L']) for (const k in hp.current[sd]) if (hp.current[sd][k]) hp.current[sd][k].visible = (sd === 'R' ? HAND_R : HAND_L)[act] === k
+      if (act) {
+        switch (act) {
+          case 'workout': { // squat + overhead press na may dumbbell
+            const u = sn(tt * 3.2) * 0.5 + 0.5
+            aL.rotation.x = aR.rotation.x = -0.5 - u * 2.2
+            aL.rotation.z = 0.12; aR.rotation.z = -0.12
+            bd.position.y = -(1 - u) * 0.25
+            lL.rotation.x = lR.rotation.x = -(1 - u) * 0.7
+            hd.rotation.x = -u * 0.15
+            break
+          }
+          case 'basketball': { // dribble -> talon at shoot sa ring -> ulit
+            const ph = tt % 4, ball = wp.current.ball
+            if (ph < 2.4) {
+              const b = Math.abs(sn(tt * 6))
+              aR.rotation.x = -0.35 - b * 0.5; aL.rotation.x = 0.15; bd.rotation.x = 0.12; bd.position.y = -0.05 * b
+              if (ball) ball.position.set(0.62, 0.35 + b * 1.25, 0.7)
+            } else if (ph < 3.5) {
+              const s = (ph - 2.4) / 1.1
+              bd.position.y = s < 0.2 ? -0.2 * (s / 0.2) : Math.max(0, sn(Math.min(1, (s - 0.2) / 0.8) * Math.PI)) * 0.7
+              aL.rotation.x = aR.rotation.x = s < 0.2 ? -1 : -2.5
+              if (ball) {
+                if (s < 0.3) ball.position.set(0.1, 1.6 + (s / 0.3) * 1.5, 0.7)
+                else { const q = (s - 0.3) / 0.7; ball.position.set(0.1 + 2.9 * q, 3.1 + 2.2 * sn(q * Math.PI) + 1.5 * q, 0.7 * (1 - q)) }
+              }
+            } else {
+              const s = (ph - 3.5) / 0.5
+              aL.rotation.x = aR.rotation.x = -2.5 * (1 - s)
+              if (ball) ball.position.set(3, 4.6 - 4.2 * s * s, 0)
+            }
+            break
+          }
+          case 'pray': // nakaluhod, magkadikit ang kamay
+            bd.position.y = -0.9; lL.rotation.x = lR.rotation.x = 1.4
+            aL.rotation.x = aR.rotation.x = -1.15; aL.rotation.z = 0.55; aR.rotation.z = -0.55
+            hd.rotation.x = 0.35 + sn(tt * 1.2) * 0.04; bd.rotation.x = 0.1
+            break
+          case 'read': // may hawak na libro
+            aL.rotation.x = aR.rotation.x = -1.3; aL.rotation.z = 0.28; aR.rotation.z = -0.28
+            hd.rotation.x = 0.28 + sn(tt * 0.8) * 0.05; hd.rotation.y = sn(tt * 0.5) * 0.12
+            aR.rotation.x = -1.3 - (sn(tt * 3) > 0.92 ? 0.25 : 0)
+            break
+          case 'tutor': // nagtuturo
+            aR.rotation.x = -2.1 + sn(tt * 2.5) * 0.5; aR.rotation.z = -0.25
+            aL.rotation.x = -1.3; aL.rotation.z = 0.28
+            hd.rotation.y = sn(tt * 1.2) * 0.3
+            break
+          case 'cleanup': // nagwawalis
+            aL.rotation.x = aR.rotation.x = -0.9
+            aL.rotation.z = aR.rotation.z = 0.15 + sn(tt * 3) * 0.35
+            bd.rotation.x = 0.18; bd.rotation.y = sn(tt * 3) * 0.15
+            break
+          case 'oddjob': { // pukpok ng martilyo
+            const u = sn(tt * 5) * 0.5 + 0.5
+            aR.rotation.x = -2.6 + u * 1.9; aL.rotation.x = -1.2; aL.rotation.z = 0.3
+            bd.rotation.x = u * 0.15; hd.rotation.x = u * 0.2
+            break
+          }
+          case 'tanod': case 'stroll': { // lakad-lakad sa lugar
+            const s = sn(tt * 9) * 0.8
+            lL.rotation.x = s; lR.rotation.x = -s; aL.rotation.x = -s
+            aR.rotation.x = act === 'tanod' ? -1.25 + sn(tt * 1.5) * 0.2 : s
+            bd.position.y = Math.abs(sn(tt * 9)) * 0.1
+            hd.rotation.y = act === 'tanod' ? sn(tt * 0.9) * 0.5 : 0
+            break
+          }
+          case 'haircut': { // nakaupo sa barber chair
+            lL.rotation.x = lR.rotation.x = -1.45; bd.position.y = -0.1
+            aL.rotation.x = aR.rotation.x = -0.55; aL.rotation.z = 0.25; aR.rotation.z = -0.25
+            hd.rotation.y = sn(tt * 1.1) * 0.25
+            const sc = wp.current.scissors
+            if (sc) sc.position.set(0.9 + sn(tt * 1.5) * 0.2, 3.7 + sn(tt * 2) * 0.1, 0.7)
+            if (an.current.sc1) { an.current.sc1.rotation.z = 0.35 * sn(tt * 14) + 0.1; an.current.sc2.rotation.z = -0.35 * sn(tt * 14) - 0.1 }
+            break
+          }
+          case 'checkup': case 'hospbed': { // nakahiga sa kama
+            bd.rotation.x = -Math.PI / 2; bd.position.y = 1.15 + sn(tt * 1.8) * 0.02; bd.position.z = 1.9
+            lL.rotation.x = lR.rotation.x = 0; aL.rotation.x = aR.rotation.x = 0; aL.rotation.z = 0.12; aR.rotation.z = -0.12
+            if (act === 'hospbed') eyeRefs.current.forEach((e) => { if (e) e.scale.y = 0.1 })
+            break
+          }
+          case 'fish': { // pangingisda: cast, hintay, kagat, huli
+            const ph = g.userData.phase || 'idle'
+            if (g.userData._ph !== ph) { g.userData._ph = ph; if (ph === 'waiting') g.userData.castT = tt }
+            const ck = (tt - (g.userData.castT ?? -9)) / 0.7
+            let ar = -1 + sn(tt * 1.5) * 0.03
+            if (ck >= 0 && ck < 1) ar = -2.6 + ck * 1.6
+            if (ph === 'bite') ar = -1 - Math.abs(sn(tt * 16)) * 0.5
+            if (ph === 'catch') { ar = -2.3; bd.position.y = Math.abs(sn(tt * 10)) * 0.25 }
+            aR.rotation.x = ar; aL.rotation.x = -0.75; aL.rotation.z = 0.35; hd.rotation.x = ph === 'bite' ? 0.2 : 0.08
+            const bob = an.current.bob, ring = an.current.ring
+            if (bob) bob.position.y = ph === 'bite' ? 0.12 - Math.abs(sn(tt * 16)) * 0.14 : 0.12 + sn(tt * 2) * 0.03
+            if (ring) { const q = (tt * (ph === 'bite' ? 1.6 : 0.5)) % 1; ring.scale.setScalar(0.5 + q * 2); ring.material.opacity = (1 - q) * 0.6 }
+            break
+          }
+          default: break
+        }
+      } else if (g.userData.air) { // nasa ere: nakataas ang kamay, nakatiklop ang binti
+        aL.rotation.x = aR.rotation.x = -2.3; aL.rotation.z = 0.35; aR.rotation.z = -0.35
+        lL.rotation.x = -0.55; lR.rotation.x = 0.45; hd.rotation.x = -0.12
+      }
+    }
+    if (angry) {
+      const tt = clock.elapsedTime
+      const mad = !!g.userData.say
+      if (mad) { // nagagalit: tinataas ang kamao, nagpapadyak, umiiling
+        armR.current.rotation.x = -2.5 + Math.sin(tt * 16) * 0.35; armR.current.rotation.z = -0.3
+        armL.current.rotation.x = -0.15; armL.current.rotation.z = -0.55
+        legL.current.rotation.x = Math.sin(tt * 9) * 0.4; legR.current.rotation.x = -Math.sin(tt * 9) * 0.4
+        body.current.position.y += Math.abs(Math.sin(tt * 9)) * 0.15
+        body.current.rotation.x = 0.08
+        head.current.rotation.z = Math.sin(tt * 20) * 0.06; head.current.rotation.x = -0.1
+      }
+      if (veinRef.current) { veinRef.current.visible = mad; veinRef.current.scale.setScalar(0.9 + Math.abs(Math.sin(tt * 12)) * 0.35) }
+      if (bubbleRef.current) {
+        const txt = mad ? g.userData.sayText || bubble : null
+        bubbleRef.current.visible = !!txt
+        if (txt && txt !== lastTxt.current) {
+          lastTxt.current = txt
+          textR.current.text = txt; textR.current.sync?.()
+          const w2 = txt.length * 0.27 + 0.9
+          bgR.current.scale.x = w2; bdR.current.scale.x = w2 + 0.2
+        }
+      }
+    }
     if (cry) {
       const tt = clock.elapsedTime
       const pose = !!g.userData.cry // nakatayong umiiyak (hindi tumatakbo)
@@ -273,6 +556,7 @@ export const Character = forwardRef(function Character({ look, label, cry, bubbl
             <Cap p={[0, -0.2, 0]} r={0.16} l={0.18} c={look.shirt} />
             <Cap p={[0, -0.58, 0]} r={0.125} l={0.3} c={fem ? look.skin : look.shirt} />
             <Ball p={[0, -0.9, 0]} r={0.15} c={look.skin} />
+            {acts && <HandProps side={d > 0 ? 'R' : 'L'} reg={regH} />}
           </group>
         ))}
         {/* head (chibi: malaki) */}
@@ -359,7 +643,16 @@ export const Character = forwardRef(function Character({ look, label, cry, bubbl
           )}
         </group>
       </group>
-      {cry && bubble && (
+      {acts && <ActWorld reg={regW} regA={regA} />}
+      {angry && (
+        <group ref={veinRef} position={[0.95, 4.35, 0.2]} visible={false}>
+          <Box p={[0, 0.14, 0]} s={[0.7, 0.1, 0.1]} c="#ef4444" cast={false} />
+          <Box p={[0, -0.14, 0]} s={[0.7, 0.1, 0.1]} c="#ef4444" cast={false} />
+          <Box p={[0.14, 0, 0]} s={[0.1, 0.7, 0.1]} c="#ef4444" cast={false} />
+          <Box p={[-0.14, 0, 0]} s={[0.1, 0.7, 0.1]} c="#ef4444" cast={false} />
+        </group>
+      )}
+      {(cry || angry) && bubble && (
         <group ref={bubbleRef} visible={false}>
           <Billboard position={[0, 5.5, 0]}>
             <mesh ref={bgR} position={[0, 0, -0.02]} scale={[bubble.length * 0.27 + 0.9, 1, 1]}>
@@ -943,9 +1236,11 @@ export default function Scene3D({ bridge, look }) {
   const npcRefs = useRef(NPCS.map(() => ({ current: null })))
   const jeepRefs = useRef([])
   const ps = useRef({ x: 300, z: 520, face: 0 })
+  const jumpS = useRef({ y: 0, vy: 0, req: false }) // talon (Space / Jump button)
   const npcState = useRef(NPCS.map((n) => ({ x: n.x, z: n.y, hx: n.x, hz: n.y, vx: 0, vz: 0, think: Math.random() * 1.8, stop: 0, face: 0, mode: n.cry ? 'cry' : 'idle', mt: 0, li: 0, lt: 0 })))
   const vehicles = useRef([[0, 610, -1], [1, 680, 1], [2, 640, -1], [3, 1750, 1], [0, 1820, -1], [1, 1780, 1]].map(([i, z, d], n) => ({ i, z, d, x: 300 + n * 800, speed: d * (60 + n * 15) })))
   const rideRefs = useRef([])
+  const driverRefs = useRef(vehicles.current.map(() => ({ current: null })))
   const rides = useRef(PARKED.map(([x, z, , f]) => ({
     hx: x, hz: z - 8, x, z: z - 8, yaw: f ? Math.PI : 0, home: f ? Math.PI : 0,
     route: null, seg: 0, active: false, rider: false, dir: undefined,
@@ -971,7 +1266,7 @@ export default function Scene3D({ bridge, look }) {
     riding.current = null
   }
   const interact = () => {
-    if (bridge.paused) return
+    if (bridge.paused || bridge.act) return
     if (riding.current != null) return stopRide()
     const best = near.current.best
     if (!best) return
@@ -993,6 +1288,7 @@ export default function Scene3D({ bridge, look }) {
       const k = e.key.toLowerCase()
       keys.current.add(k)
       if (k === 'e' && !e.repeat) interact()
+      if (k === ' ' && !bridge.paused) { e.preventDefault(); if (!e.repeat) jumpS.current.req = true }
     }
     const up = (e) => keys.current.delete(e.key.toLowerCase())
     const blur = () => keys.current.clear()
@@ -1046,7 +1342,7 @@ export default function Scene3D({ bridge, look }) {
 
     // ----- player input (camera-relative) -----
     let ix = 0, iy = 0
-    if (!bridge.paused && !onJeep) {
+    if (!bridge.paused && !onJeep && !bridge.act) {
       ix = (k.has('d') || k.has('arrowright') ? 1 : 0) - (k.has('a') || k.has('arrowleft') ? 1 : 0) + (Math.abs(vec.x) > 0.15 ? vec.x : 0)
       iy = (k.has('s') || k.has('arrowdown') ? 1 : 0) - (k.has('w') || k.has('arrowup') ? 1 : 0) + (Math.abs(vec.y) > 0.15 ? vec.y : 0)
     }
@@ -1060,7 +1356,15 @@ export default function Scene3D({ bridge, look }) {
     if (moving) p.face = lerpAngle(p.face, Math.atan2(mx, mz), 1 - Math.exp(-12 * dt))
     const pg = player.current
     pg.userData.walk = (pg.userData.walk || 0) + ((moving ? 1 : 0) - (pg.userData.walk || 0)) * Math.min(1, dt * 12)
-    pg.position.set(p.x * S, 0, p.z * S)
+    const J = jumpS.current
+    if ((J.req || bridge.jump) && J.y === 0 && !bridge.paused && !bridge.act && !onJeep) J.vy = 13
+    J.req = false; bridge.jump = false
+    if (J.vy !== 0 || J.y > 0) { J.y += J.vy * dt; J.vy -= 40 * dt; if (J.y <= 0) { J.y = 0; J.vy = 0 } }
+    pg.userData.air = J.y > 0.02 ? 1 : 0
+    pg.position.set(p.x * S, J.y, p.z * S)
+    if (bridge.act && !onJeep) p.face = lerpAngle(p.face, bridge.act === 'fish' ? 0 : c.yaw, 1 - Math.exp(-10 * dt))
+    pg.userData.act = onJeep ? null : bridge.act || null
+    pg.userData.phase = bridge.actPhase
     pg.rotation.y = p.face
 
     // ----- NPCs -----
@@ -1156,12 +1460,35 @@ export default function Scene3D({ bridge, look }) {
     vehicles.current.forEach((v, i) => {
       // wait for anyone crossing in front of the jeepney
       const [f1, f2] = v.d > 0 ? [v.x + 50, v.x + 130] : [v.x - 130, v.x - 50]
-      const blockedAhead = [p, ...npcState.current].some((q) => q.x > f1 && q.x < f2 && Math.abs(q.z - v.z) < 27 + R + 6)
+      const inFront = (q) => q.x > f1 && q.x < f2 && Math.abs(q.z - v.z) < 27 + R + 6
+      const byPlayer = inFront(p)
+      const blockedAhead = byPlayer || npcState.current.some(inFront)
       if (!blockedAhead) v.x += v.speed * dt
+      // kapag hinarangan mo ang jeep ng matagal, lalabas ang driver at magagalit
+      v.wait = byPlayer ? (v.wait || 0) + dt : Math.max(0, (v.wait || 0) - dt * 2)
+      if (v.wait > 1.4) v.tgt = 1
+      else if (v.wait < 0.4) v.tgt = 0
+      v.out = (v.out || 0) + ((v.tgt || 0) - (v.out || 0)) * Math.min(1, dt * 5)
       if (v.x > WW + 100) v.x = -100
       if (v.x < -100) v.x = WW + 100
       const g = jeepRefs.current[i]
       if (g) { g.position.set(v.x * S, 0, v.z * S); g.rotation.y = v.d > 0 ? 0 : Math.PI }
+      const dr = driverRefs.current[i].current
+      if (dr) {
+        const show = v.out > 0.03
+        dr.visible = show
+        if (show) {
+          const side = p.z >= v.z ? 1 : -1
+          const cabX = v.x + v.d * 40, oz = v.z + side * (6 + 32 * v.out)
+          dr.position.set(cabX * S, 0, oz * S)
+          dr.scale.setScalar(0.5 + 0.5 * v.out)
+          dr.rotation.y = Math.atan2(p.x - cabX, p.z - oz)
+          v.sayT = (v.sayT || 0) + dt
+          dr.userData.say = v.out > 0.85
+          dr.userData.sayText = DRIVER_LINES[(Math.floor(v.sayT / 2.4) + i) % DRIVER_LINES.length]
+          if (v.out > 0.5) { v.honkT = (v.honkT || 0) - dt; if (v.honkT <= 0) { honk(); v.honkT = 2.4 } } else v.honkT = 0
+        } else { v.sayT = 0; v.honkT = 0 }
+      }
     })
 
     // ----- rideable jeepneys at the terminal -----
@@ -1250,7 +1577,9 @@ export default function Scene3D({ bridge, look }) {
       const t = 1 - Math.exp(-8 * dt)
       c.px += (tx - c.px) * t; c.pz += (tz - c.pz) * t
     }
-    const D = c.dist, H = D * 0.5 + 1.5
+    if (c.actZ === undefined) c.actZ = 1
+    c.actZ += ((bridge.act ? 0.7 : 1) - c.actZ) * (1 - Math.exp(-4 * dt))
+    const D = c.dist * c.actZ, H = D * 0.5 + 1.5
     const ox = Math.sin(c.yaw) * D, oz = Math.cos(c.yaw) * D, oy = H - 2.2
     // pull the camera toward the player so it never goes inside a building
     let f = 1
@@ -1388,6 +1717,9 @@ export default function Scene3D({ bridge, look }) {
       {vehicles.current.map((v, i) => (
         <group key={i} ref={(g) => (jeepRefs.current[i] = g)}><Jeep color={JEEP[v.i]} /></group>
       ))}
+      {vehicles.current.map((v, i) => (
+        <Character key={'drv' + i} ref={driverRefs.current[i]} look={DRIVER_LOOKS[i % DRIVER_LOOKS.length]} label="Manong Driver" angry bubble={DRIVER_LINES[0]} />
+      ))}
       {PARKED.map(([x, z, i, f], k) => (
         <group
           key={x}
@@ -1399,7 +1731,7 @@ export default function Scene3D({ bridge, look }) {
       ))}
 
       {/* people */}
-      <Character ref={player} look={look} />
+      <Character ref={player} look={look} acts />
       {NPCS.map((n, i) => <Character key={n.id} ref={npcRefs.current[i]} look={n.look} label={n.name} cry={n.cry} bubble={n.cry ? n.line : undefined} />)}
     </>
   )

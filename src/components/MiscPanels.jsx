@@ -112,7 +112,7 @@ export function SettingsPanel({ settings, setSettings, user, onLogout, onReset, 
           <p className="text-xs text-slate-500">Hunger/energy speed. Progress auto-saves.</p>
         </div>
       )}
-      {tab === 'Controls' && <p className="rounded-xl bg-white p-3 text-sm font-bold">WASD / arrows: move<br />E: interact<br />I: inventory<br />Esc: close panel<br />Touch: joystick + E button</p>}
+      {tab === 'Controls' && <p className="rounded-xl bg-white p-3 text-sm font-bold">WASD / arrows: move<br />Space: jump<br />E: interact<br />I: inventory<br />Esc: close panel<br />Touch: joystick + E button</p>}
       {tab === 'Account' && (
         <div className="space-y-2">
           <p className="font-bold">Signed in as {user}</p>
