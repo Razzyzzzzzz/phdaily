@@ -110,7 +110,10 @@ function useFit(w, h) {
     const fit = () => {
       const vv = window.visualViewport
       const vw = vv?.width || window.innerWidth, vh = vv?.height || window.innerHeight
-      setK(Math.min(1, (vw - 16) / w, (vh - 16) / h))
+      // portrait phone: the menu is rotated 90° by App, so width and height swap
+      const rotated = window.matchMedia('(orientation: portrait) and (pointer: coarse) and (max-width: 820px)').matches
+      const [aw, ah] = rotated ? [vh, vw] : [vw, vh]
+      setK(Math.min(1, (aw - 16) / w, (ah - 16) / h))
     }
     fit()
     window.addEventListener('resize', fit)

@@ -1,4 +1,8 @@
+import { useState } from 'react'
 import HudPortrait from './HudPortrait'
+import ChatPanel from './ChatPanel'
+import OnlinePlayers from './OnlinePlayers'
+import { useMp } from '../store/mpStore'
 import { fmtTime, weather, level } from '../data/gameData'
 
 const clamp = (v) => Math.max(0, Math.min(100, v))
@@ -20,6 +24,34 @@ function Bar({ icon, value, color }) {
           {Math.round(v)}/100
         </span>
       </div>
+    </div>
+  )
+}
+
+const STATUS = {
+  connecting: ['🟡', 'Connecting…'],
+  reconnecting: ['🟠', 'Reconnecting…'],
+  replaced: ['🔴', 'Signed in elsewhere'],
+  error: ['🔴', 'Offline'],
+}
+
+// Multiplayer connection indicator. Click it while online to see who is in town.
+function OnlineChip() {
+  const status = useMp((s) => s.status)
+  const count = useMp((s) => s.onlineCount)
+  const [open, setOpen] = useState(false)
+  if (status === 'offline') return null // not logged in online: single-player, nothing to show
+  const [dot, text] = STATUS[status] || ['🟢', null]
+  const online = status === 'online'
+  return (
+    <div className="relative">
+      <button
+        type="button" onClick={() => online && setOpen((o) => !o)}
+        className="rounded-full border border-white/10 bg-slate-900/75 px-3 py-0.5 text-xs font-extrabold text-white shadow sm:py-1 sm:text-sm"
+      >
+        {dot} {online ? `${count} online` : text}
+      </button>
+      {open && online && <OnlinePlayers onClose={() => setOpen(false)} />}
     </div>
   )
 }
@@ -54,7 +86,10 @@ export default function Hud({ state }) {
       <div className="absolute z-10 flex flex-col items-end gap-1" style={{ top: 'max(0.5rem, env(safe-area-inset-top))', right: 'max(0.5rem, env(safe-area-inset-right))' }}>
         <div className="rounded-full border border-white/10 bg-slate-900/75 px-3 py-0.5 text-sm font-extrabold text-yellow-300 shadow sm:py-1 sm:text-base">🪙 ₱{Math.round(money).toLocaleString()}</div>
         <div className="rounded-xl border border-white/10 bg-slate-900/75 px-3 py-0.5 text-xs font-bold leading-tight text-white shadow sm:py-1 sm:text-sm">{fmtTime(day, minutes)}<br />{wIcon} {wLabel}</div>
+        <OnlineChip />
       </div>
+
+      <ChatPanel />
     </>
   )
 }

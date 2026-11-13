@@ -12,6 +12,7 @@ import LearningPanel from './components/LearningPanel'
 import ConfirmModal from './components/ConfirmModal'
 import RotatePrompt from './components/RotatePrompt'
 import { autoLandscape } from './utils/landscape'
+import { api } from './utils/api'
 import JobPanel from './components/JobPanel'
 import HouseRoom from './components/HouseRoom'
 import { DialogPanel, MissionsPanel, ProfilePanel, PausePanel, SettingsPanel } from './components/MiscPanels'
@@ -19,6 +20,24 @@ import { MapPanel } from './components/MapPanel'
 import { reducer, initialState } from './store/gameReducer'
 import { ITEMS, JOBS, JOB_BY_PLACE } from './data/gameData'
 import { read, write, SETTINGS, saveKey } from './store/storage'
+
+// Portrait phone: the main menu is turned 90° with CSS so it always looks landscape (no "rotate your phone" screen).
+// Once the phone really is in landscape (or fullscreen + lock succeeds on Android) the rotation switches itself off.
+const PORTRAIT_PHONE = '(orientation: portrait) and (pointer: coarse) and (max-width: 820px)'
+function usePortraitPhone() {
+  const read = () => {
+    const vv = window.visualViewport
+    return { on: window.matchMedia(PORTRAIT_PHONE).matches, w: Math.round(vv?.width || window.innerWidth), h: Math.round(vv?.height || window.innerHeight) }
+  }
+  const [v, setV] = useState(read)
+  useEffect(() => {
+    const f = () => setV(read())
+    window.addEventListener('resize', f)
+    window.visualViewport?.addEventListener('resize', f)
+    return () => { window.removeEventListener('resize', f); window.visualViewport?.removeEventListener('resize', f) }
+  }, [])
+  return v
+}
 
 const defaults = { touch: 'ontouchstart' in window || navigator.maxTouchPoints > 0, speed: 1 }
 const DEFAULT_LOOK = { skin: '#f1c27d', hair: '#3b2417', hairStyle: 0, shirt: '#f8fafc', gender: 'male' }
@@ -35,6 +54,7 @@ export default function App() {
   const [doing, setDoing] = useState(null) // { act, placeId, dur } habang ginagawa ang activity
   const [prog, setProg] = useState(0)
   const timer = useRef()
+  const pp = usePortraitPhone()
   const bridge = useRef({ vec: { x: 0, y: 0 }, paused: false }).current
   const saved = user ? read(saveKey(user)) : null
 
@@ -108,8 +128,21 @@ export default function App() {
   }, [screen])
 
   const here = nearby?.type === 'place' ? JOB_BY_PLACE[nearby.id] : null
-  const login = (u) => { localStorage.setItem('elph:session', u); setUser(u); setScreen('menu') }
-  const logout = () => { localStorage.removeItem('elph:session'); setUser(null); setPanel(null); setScreen('menu') }
+  // AuthScreen passes { token, user: { id, username }, hasCharacter } (token is already saved by api.js)
+  const login = (res) => {
+    const u = res?.user?.username
+    if (!u) return
+    localStorage.setItem('elph:session', u)
+    setUser(u)
+    setScreen('menu')
+  }
+  const logout = () => {
+    api.logout() // invalidates the token on the server and clears it locally
+    localStorage.removeItem('elph:session')
+    setUser(null)
+    setPanel(null)
+    setScreen('menu')
+  }
 
   const play = () => {
     autoLandscape() // phone: fullscreen + landscape
@@ -150,11 +183,13 @@ export default function App() {
   const sleep = () => { dispatch({ type: 'SLEEP' }); close(); notify(`😴 Good morning! Day ${state.day + 1}`) }
   const travel = (id) => { setDoing(null); bridge.teleport?.(id); close() }
 
-  if (!user) return <AuthScreen onAuth={login} />
+  if (!user) return <AuthScreen onAuthed={login} />
 
   const btn = [['🎒', 'Inventory', 'inventory'], ['💼', 'Jobs', 'jobs'], ['📍', 'Map', 'map'], ['☰', 'Menu', 'pause']]
   return (
-    <div className="relative h-full w-full overflow-hidden" onContextMenu={(e) => screen === 'game' && e.preventDefault()}>
+    <div className="relative h-full w-full overflow-hidden"
+      style={pp.on && screen === 'menu' ? { position: 'fixed', top: 0, left: 0, width: pp.h, height: pp.w, transform: `translateX(${pp.w}px) rotate(90deg)`, transformOrigin: '0 0' } : undefined}
+      onContextMenu={(e) => screen === 'game' && e.preventDefault()}>
       {screen === 'menu' && (
         <MainMenu user={user} look={saved?.player?.look || DEFAULT_LOOK} onPlay={play} onCreate={startCreator}
           onSettings={() => setPanel({ type: 'settings' })} onExit={logout} />
@@ -238,7 +273,7 @@ export default function App() {
       {confirm && (
         <ConfirmModal {...confirm} onCancel={() => setConfirm(null)} onConfirm={() => { const go = confirm.onConfirm; setConfirm(null); go() }} />
       )}
-      <RotatePrompt />
+      {screen === 'game' && <RotatePrompt />}
       {toast && <div className="absolute left-1/2 top-24 z-50 -translate-x-1/2 rounded-full bg-yellow-300 px-4 py-2 font-extrabold text-slate-900 shadow-lg">{toast}</div>}
     </div>
   )

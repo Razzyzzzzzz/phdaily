@@ -5,6 +5,8 @@ import * as THREE from 'three'
 import { WW, WH, PLACES, NPCS, LOCATIONS, ROAD2, VROAD, POND } from './world'
 import { weatherIndex } from '../data/gameData'
 import Grass from './Grass'
+import RemotePlayers from './RemotePlayers'
+import { useMp } from '../store/mpStore'
 
 // Simulation runs in the same pixel units as the old 2D game (x, z = old x, y).
 // Everything is scaled by S when rendered.
@@ -44,6 +46,13 @@ const PALMS = [[140, 900], [320, 900], [820, 900], [1020, 900], [140, 1500], [40
 const POLES = [] // [x, zBase]
 for (const zb of [750, ROAD2.y + ROAD2.h + 30]) for (let x = 120; x < WW; x += 360) if (!(x > VROAD.x - 60 && x < VROAD.x + VROAD.w + 60)) POLES.push([x, zb])
 
+// ---------- billboards (px). face: 'N' = screen faces north (seen from the main road), 'S' = faces south (seen from the south road) ----------
+const BILLBOARDS = [
+  { x: 1020, z: 780, face: 'N' }, { x: 2100, z: 780, face: 'N' }, { x: 3180, z: 780, face: 'N' }, { x: 4260, z: 780, face: 'N' },
+  { x: 660, z: 1645, face: 'S' }, { x: 1740, z: 1645, face: 'S' }, { x: 2820, z: 1645, face: 'S' }, { x: 3900, z: 1645, face: 'S' },
+]
+const BB_POST = 100 // posts stand this far (px) left / right of the billboard center
+
 // ---------- collision (px) ----------
 const R = 11
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
@@ -51,6 +60,7 @@ const BOXES = [
   [POND.x, POND.z, POND.x + POND.w, POND.z + POND.d], // tubig ng palaisdaan
   ...PLACES.filter((pl) => pl.base > 600).map((pl) => [pl.x, pl.base - 200, pl.x + pl.w, pl.base]), // terminal, mall, police, gym, south row
   [516, 802, 524, 810], [636, 802, 644, 810], // mga poste ng "Parke" sign
+  ...BILLBOARDS.flatMap((b) => [-BB_POST, BB_POST].map((dx) => [b.x + dx - 10, b.z - 10, b.x + dx + 10, b.z + 10])), // billboard posts
 ]
 const BENCHES = [[430, 1180], [730, 1285], [2230, 2520], [2570, 2520]].map(([x, z]) => [x - 42, z - 17, x + 42, z + 17]) // mga bench sa park
 let DYN = [] // moving jeepneys (traffic + terminal jeepneys), refreshed every frame
@@ -1044,6 +1054,108 @@ function Fountain({ x, z }) {
   )
 }
 
+// ---------- billboard ads: drawn with canvas (no image files), all fictional brands ----------
+let AD_TEX = null
+function adTextures() {
+  if (AD_TEX) return AD_TEX
+  const W = 1024, H = 448
+  const font = (px) => `800 ${px}px "Baloo 2", system-ui, sans-serif`
+  const mk = (draw) => {
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H
+    const g = cv.getContext('2d')
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round'
+    draw(g)
+    const t = new THREE.CanvasTexture(cv)
+    if (THREE.SRGBColorSpace) t.colorSpace = THREE.SRGBColorSpace
+    t.anisotropy = 4
+    return t
+  }
+  const bg = (g, a, b) => { const gr = g.createLinearGradient(0, 0, W, H); gr.addColorStop(0, a); gr.addColorStop(1, b); g.fillStyle = gr; g.fillRect(0, 0, W, H) }
+  const txt = (g, t, x, y, px, fill, stroke) => {
+    g.font = font(px)
+    if (stroke) { g.lineWidth = px * 0.14; g.strokeStyle = stroke; g.strokeText(t, x, y) }
+    g.fillStyle = fill; g.fillText(t, x, y)
+  }
+  AD_TEX = [
+    // 0: fiesta
+    mk((g) => {
+      bg(g, '#7c2d12', '#f97316')
+      // banderitas (bunting)
+      const cols = ['#ef4444', '#fde047', '#3b82f6', '#22c55e', '#ec4899']
+      g.strokeStyle = '#fff7ed'; g.lineWidth = 5; g.beginPath(); g.moveTo(0, 28); g.quadraticCurveTo(W / 2, 110, W, 28); g.stroke()
+      for (let i = 0; i < 16; i++) {
+        const t = (i + 0.5) / 16, x = t * W, y = 28 + (1 - Math.pow(2 * t - 1, 2)) * 41
+        g.fillStyle = cols[i % cols.length]; g.beginPath(); g.moveTo(x - 24, y); g.lineTo(x + 24, y); g.lineTo(x, y + 52); g.closePath(); g.fill()
+      }
+      g.font = '150px system-ui'; g.fillText('🎉', 150, 270); g.fillText('🎺', 880, 270)
+      txt(g, 'FIESTA!', W / 2, 235, 190, '#fde047', '#431407')
+      txt(g, 'sa Barangay', W / 2, 345, 72, '#ffffff', '#431407')
+      txt(g, 'Banda · Handaan · Sayawan', W / 2, 410, 44, '#ffedd5', '#431407')
+    }),
+    // 1: coffee
+    mk((g) => {
+      bg(g, '#451a03', '#f59e0b')
+      g.font = '200px system-ui'; g.fillText('☕', 170, 215)
+      txt(g, 'KAPE', 640, 140, 150, '#fff7ed', '#451a03')
+      txt(g, 'ni Kuya', 650, 270, 120, '#fde68a', '#451a03')
+      txt(g, 'Sarap sa bawat higop!', W / 2, 390, 56, '#ffffff', '#451a03')
+    }),
+    // 2: mobile network
+    mk((g) => {
+      bg(g, '#0038a8', '#0891b2')
+      g.fillStyle = '#fcd116'; g.beginPath(); g.arc(880, 110, 70, 0, Math.PI * 2); g.fill()
+      g.strokeStyle = '#fcd116'; g.lineWidth = 8
+      for (let i = 0; i < 8; i++) { const a = (i * Math.PI) / 4; g.beginPath(); g.moveTo(880 + Math.cos(a) * 82, 110 + Math.sin(a) * 82); g.lineTo(880 + Math.cos(a) * 112, 110 + Math.sin(a) * 112); g.stroke() }
+      g.fillStyle = '#ce1126'; g.fillRect(0, 392, W, 56)
+      txt(g, 'BAYANIHAN', 420, 130, 150, '#ffffff', '#001a5e')
+      txt(g, 'MOBILE', 420, 260, 110, '#fcd116', '#001a5e')
+      txt(g, 'Load na! 5G sa buong Pilipinas', W / 2, 420, 46, '#ffffff')
+    }),
+    // 3: halo-halo
+    mk((g) => {
+      bg(g, '#be185d', '#fde047')
+      g.font = '220px system-ui'; g.fillText('🍧', 800, 210)
+      txt(g, 'HALO-HALO', 400, 130, 140, '#ffffff', '#831843')
+      txt(g, 'FEST', 330, 260, 130, '#fde047', '#831843')
+      txt(g, 'Tag-init sa Barangay!', W / 2, 385, 58, '#ffffff', '#831843')
+    }),
+  ]
+  return AD_TEX
+}
+
+function AdBillboard({ x, z, face, start = 0 }) {
+  const mat = useRef()
+  const idx = useRef(start % 4)
+  const texs = useMemo(adTextures, [])
+  useEffect(() => {
+    const t = setInterval(() => {
+      idx.current = (idx.current + 1) % texs.length
+      if (mat.current) { mat.current.map = texs[idx.current]; mat.current.needsUpdate = true }
+    }, 6000 + (start % 3) * 700)
+    return () => clearInterval(t)
+  }, [texs, start])
+  return (
+    <group position={[x * S, 0, z * S]} rotation={[0, face === 'N' ? Math.PI : 0, 0]}>
+      {/* posts + base */}
+      {[-BB_POST, BB_POST].map((dx) => (
+        <group key={dx} position={[dx * S, 0, 0]}>
+          <Cyl p={[0, 2.2, 0]} a={[0.26, 0.34, 4.4, 8]} c="#475569" />
+          <Box p={[0, 0.2, 0]} s={[1.2, 0.4, 1.2]} c="#64748b" />
+        </group>
+      ))}
+      {/* frame, back plate and screen */}
+      <Box p={[0, 8, 0]} s={[18.2, 8.2, 0.5]} c="#1e293b" />
+      <mesh position={[0, 8, 0.28]}>
+        <planeGeometry args={[17.4, 7.6]} />
+        <meshBasicMaterial ref={mat} map={texs[start % texs.length]} toneMapped={false} />
+      </mesh>
+      {/* catwalk + lights */}
+      <Box p={[0, 12.25, 0.7]} s={[18.2, 0.12, 1.1]} c="#94a3b8" />
+      {[-6.5, -2.2, 2.2, 6.5].map((lx) => <Lamp key={lx} p={[lx, 12.05, 1.2]} s={[0.5, 0.25, 0.5]} />)}
+    </group>
+  )
+}
+
 function Bus({ color }) {
   return (
     <group>
@@ -1342,6 +1454,7 @@ function Clouds({ envR }) {
 // ---------- main scene ----------
 export default function Scene3D({ bridge, look }) {
   const { camera, gl } = useThree()
+  const selfLabel = useMp((s) => s.selfLabel) // '' when playing offline
   const light = useRef()
   const hemi = useRef(), fogR = useRef(), skyG = useRef(), sunM = useRef(), moonM = useRef(), starsR = useRef()
   const envR = useRef({ t: null, cloud: 0, rain: 0 })
@@ -1403,6 +1516,13 @@ export default function Scene3D({ bridge, look }) {
       ps.current.x = x; ps.current.z = z
       cam.current.snap = true
     }
+    // multiplayer: the server restores the saved position on login and snaps you back after an impossible move
+    bridge.setPos = (x, z) => {
+      if (riding.current != null) { rides.current[riding.current].rider = false; riding.current = null }
+      ps.current.x = x; ps.current.z = z
+      cam.current.snap = true
+    }
+    if (bridge.spawn) { bridge.setPos(bridge.spawn.x, bridge.spawn.z); bridge.spawn = null }
     const typing = (e) => /INPUT|TEXTAREA|SELECT/.test(e.target?.tagName || '')
     const down = (e) => {
       if (typing(e)) return
@@ -1447,6 +1567,8 @@ export default function Scene3D({ bridge, look }) {
     return () => {
       bridge.doInteract = null
       bridge.teleport = null
+      bridge.setPos = null
+      bridge.me = null
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
       window.removeEventListener('blur', blur)
@@ -1702,6 +1824,13 @@ export default function Scene3D({ bridge, look }) {
       pg.userData.walk = 0
     } else pg.scale.setScalar(1)
 
+    // ----- multiplayer: the local player's final transform, read by game/multiplayer.js -----
+    const me = bridge.me || (bridge.me = {})
+    me.x = pg.position.x / S; me.z = pg.position.z / S; me.y = pg.position.y
+    me.ry = pg.rotation.y; me.sc = pg.scale.x
+    me.walk = pg.userData.walk || 0; me.air = pg.userData.air || 0
+    me.act = pg.userData.act || null; me.phase = typeof pg.userData.phase === 'string' ? pg.userData.phase : null
+
     // ----- nearest interactable -----
     let best = null, bd = 70
     PLACES.forEach((pl) => {
@@ -1874,6 +2003,9 @@ export default function Scene3D({ bridge, look }) {
         <Text position={[0, 3.4, 0.16]} fontSize={0.9} color="#ffffff" anchorX="center" anchorY="middle">Parke</Text>
       </group>
 
+      {/* billboards */}
+      {BILLBOARDS.map((b, i) => <AdBillboard key={'bb' + i} {...b} start={i} />)}
+
       {/* street lights */}
       {POLES.map(([x, zb]) => (
         <group key={x + '_' + zb} position={[x * S, 0, zb * S]}>
@@ -1902,8 +2034,9 @@ export default function Scene3D({ bridge, look }) {
       ))}
 
       {/* people */}
-      <Character ref={player} look={look} acts />
+      <Character ref={player} look={look} label={selfLabel || undefined} acts />
       {NPCS.map((n, i) => <Character key={n.id} ref={npcRefs.current[i]} look={n.look} label={n.name} cry={n.cry} bubble={n.cry ? n.line : undefined} />)}
+      <RemotePlayers />
     </>
   )
 }

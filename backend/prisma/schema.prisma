@@ -1,0 +1,46 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int        @id @default(autoincrement())
+  username     String     @unique @db.VarChar(16)
+  passwordHash String     @db.VarChar(100)
+  // Bumped on logout; every JWT carries the version it was issued with, so logout really invalidates tokens.
+  tokenVersion Int        @default(0)
+  createdAt    DateTime   @default(now())
+  lastLoginAt  DateTime?
+  character    Character?
+}
+
+model Character {
+  id        Int             @id @default(autoincrement())
+  userId    Int             @unique
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  look      Json
+  money     Int             @default(1000)
+  level     Int             @default(1)
+  posX      Float           @default(300)
+  posZ      Float           @default(520)
+  // Everything else from the client reducer state (energy, hunger, day, stats, missions, modules...)
+  state     Json
+  inventory InventoryItem[]
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+}
+
+model InventoryItem {
+  id          Int       @id @default(autoincrement())
+  characterId Int
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  itemId      String    @db.VarChar(40)
+  quantity    Int
+
+  @@unique([characterId, itemId])
+  @@index([characterId])
+}

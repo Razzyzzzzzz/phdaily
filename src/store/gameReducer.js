@@ -17,6 +17,7 @@ export function reducer(s, a) {
       stats: { ...initialState.stats, ...a.state.stats, acts: { ...(a.state.stats?.acts || {}) } },
     }
     case 'NEW': return { ...initialState, player: a.player }
+    case 'RESET': return initialState // logout: forget the previous account's state so the next login starts clean
     case 'FURNITURE': return { ...s, furniture: a.furniture }
     case 'TICK': {
       const hunger = c(s.hunger - 0.5 * a.rate), energy = c(s.energy - 0.25 * a.rate)
