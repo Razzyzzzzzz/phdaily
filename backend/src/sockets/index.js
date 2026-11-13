@@ -1,6 +1,7 @@
 import { Server } from 'socket.io'
 import { registerWorldHandlers } from './worldHandlers.js'
 import { registerChatHandlers } from './chatHandlers.js'
+import { registerEmoteHandlers } from './emoteHandlers.js'
 
 // Dependencies are injected so the realtime layer can be tested without MySQL.
 export function setupSockets(httpServer, { world, isOriginAllowed, authenticate, loadCharacter }) {
@@ -29,6 +30,7 @@ export function setupSockets(httpServer, { world, isOriginAllowed, authenticate,
   io.on('connection', (socket) => {
     registerWorldHandlers(io, socket, world)
     registerChatHandlers(io, socket, world)
+    registerEmoteHandlers(io, socket)
   })
   return io
 }

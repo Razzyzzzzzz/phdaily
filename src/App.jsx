@@ -17,8 +17,12 @@ import JobPanel from './components/JobPanel'
 import HouseRoom from './components/HouseRoom'
 import { DialogPanel, MissionsPanel, ProfilePanel, PausePanel, SettingsPanel } from './components/MiscPanels'
 import { MapPanel } from './components/MapPanel'
+import QuestsPanel from './components/QuestsPanel'
+import { multiplayer } from './game/multiplayer'
+import EmotePicker from './components/EmotePicker'
 import { reducer, initialState } from './store/gameReducer'
 import { ITEMS, JOBS, JOB_BY_PLACE } from './data/gameData'
+import { todayKey, COLLECT_BY_ID, rewardText } from './data/progression'
 import { read, write, SETTINGS, saveKey } from './store/storage'
 
 // Portrait phone: the main menu is turned 90° with CSS so it always looks landscape (no "rotate your phone" screen).
@@ -53,6 +57,10 @@ export default function App() {
   const [confirm, setConfirm] = useState(null)
   const [doing, setDoing] = useState(null) // { act, placeId, dur } habang ginagawa ang activity
   const [prog, setProg] = useState(0)
+  const [emoteOpen, setEmoteOpen] = useState(false)
+  const quickT = useRef()
+  const [tallScreen, setTallScreen] = useState(() => window.innerHeight > 560)
+  useEffect(() => { const f = () => setTallScreen(window.innerHeight > 560); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f) }, [])
   const timer = useRef()
   const pp = usePortraitPhone()
   const bridge = useRef({ vec: { x: 0, y: 0 }, paused: false }).current
@@ -62,6 +70,7 @@ export default function App() {
   const close = () => setPanel(null)
 
   const onInteract = (t) => {
+    if (t.type === 'place') dispatch({ type: 'VISIT', id: t.id })
     if (t.type === 'npc') return setPanel({ type: 'dialog', npc: t })
     if (t.id === 'house') return setPanel({ type: 'house' })
     if (t.id === 'terminal') return setPanel({ type: 'jobs' })
@@ -95,7 +104,31 @@ export default function App() {
     }, 100)
     return () => clearInterval(id)
   }, [doing])
-  useEffect(() => { bridge.onNearby = setNearby; bridge.onInteract = onInteract })
+  useEffect(() => {
+    bridge.onNearby = setNearby; bridge.onInteract = onInteract
+    // treasure hunt: Scene3D reads bridge.collected and calls bridge.onCollect when you walk into a collectible
+    bridge.collected = state.collected
+    bridge.onCollect = (id) => {
+      const c = COLLECT_BY_ID[id]
+      if (!c || state.collected[id]) return
+      dispatch({ type: 'COLLECT', id })
+      notify(`${c.icon} ${c.name}! ${rewardText(c.reward)}`)
+    }
+  })
+  // daily quests + login streak: on entering the game and again every minute (catches midnight)
+  useEffect(() => {
+    if (screen !== 'game' || !state.player) return
+    const sync = () => dispatch({ type: 'DAILY_SYNC', date: todayKey() })
+    sync()
+    const id = setInterval(sync, 60000)
+    return () => clearInterval(id)
+  }, [screen, !!state.player])
+  // real-time multiplayer: connect while in the game world, disconnect when leaving it
+  useEffect(() => {
+    if (screen !== 'game' || !state.player) return
+    multiplayer.connect(bridge)
+    return () => multiplayer.disconnect()
+  }, [screen, !!state.player])
   useEffect(() => { write(SETTINGS, settings) }, [settings])
   // phone: the very first tap anywhere (menu included) goes fullscreen + landscape.
   // Browsers only allow this after a tap, so it can't happen before the user touches the screen.
@@ -182,10 +215,17 @@ export default function App() {
   const use = (id) => { dispatch({ type: 'USE', id }); notify(`${ITEMS[id].emoji} Used ${ITEMS[id].name}`) }
   const sleep = () => { dispatch({ type: 'SLEEP' }); close(); notify(`😴 Good morning! Day ${state.day + 1}`) }
   const travel = (id) => { setDoing(null); bridge.teleport?.(id); close() }
+  // quick emotes shown to everybody: wave (auto-stops), dance / sit (until you move or tap again)
+  const quick = (id) => {
+    if (bridge.paused || doing) return
+    clearTimeout(quickT.current)
+    if (bridge.act === id) { bridge.act = null; return }
+    bridge.act = id
+    if (id === 'wave') quickT.current = setTimeout(() => { if (bridge.act === 'wave') bridge.act = null }, 2500)
+  }
 
   if (!user) return <AuthScreen onAuthed={login} />
 
-  const btn = [['🎒', 'Inventory', 'inventory'], ['💼', 'Jobs', 'jobs'], ['📍', 'Map', 'map'], ['☰', 'Menu', 'pause']]
   return (
     <div className="relative h-full w-full overflow-hidden"
       style={pp.on && screen === 'menu' ? { position: 'fixed', top: 0, left: 0, width: pp.h, height: pp.w, transform: `translateX(${pp.w}px) rotate(90deg)`, transformOrigin: '0 0' } : undefined}
@@ -201,35 +241,40 @@ export default function App() {
       {screen === 'game' && state.player && (
         <>
           <GameCanvas bridge={bridge} look={state.player.look} minutes={state.minutes} day={state.day} />
-          <Hud state={state} />
-          {/* menu buttons (safe-area aware) */}
-          <div className="absolute z-10 flex gap-1.5 sm:gap-2" style={{ bottom: 'max(0.5rem, env(safe-area-inset-bottom))', right: 'max(0.5rem, env(safe-area-inset-right))' }}>
-            {btn.map(([icon, label, type]) => (
-              <button key={type} onClick={() => setPanel({ type })} className="flex flex-col items-center" aria-label={label} tabIndex={-1} onMouseDown={(e) => e.preventDefault()}>
-                <span className="grid h-11 w-11 place-items-center rounded-xl border-b-4 border-blue-900 bg-blue-500 text-xl shadow-lg active:translate-y-0.5 sm:h-12 sm:w-12 sm:text-2xl">{icon}</span>
-                <span className="text-[10px] font-extrabold text-white drop-shadow">{label}{type === 'inventory' && !settings.touch ? ' [I]' : ''}</span>
-              </button>
-            ))}
-          </div>
-          {/* action buttons: malaki sa touch, maliit sa PC (may keyboard) */}
-          <div className="absolute z-10 flex items-end gap-2" style={{ bottom: 'calc(max(0.5rem, env(safe-area-inset-bottom)) + 4.4rem)', right: 'max(0.75rem, env(safe-area-inset-right))' }}>
-            <button aria-label="Jump" tabIndex={-1} onPointerDown={(e) => { e.preventDefault(); bridge.jump = true }}
-              className={`${settings.touch ? 'h-14 w-14 text-xl' : 'h-11 w-11 text-base'} rounded-full border-b-4 border-blue-900 bg-blue-500 font-extrabold text-white shadow-xl active:translate-y-0.5`}>⤒</button>
-            <button aria-label="Interact" tabIndex={-1} onMouseDown={(e) => e.preventDefault()} onClick={() => bridge.doInteract?.()}
-              className={`${settings.touch ? 'h-16 w-16 text-2xl' : 'h-12 w-12 text-lg'} rounded-full border-b-4 border-orange-700 bg-orange-500 font-extrabold text-white shadow-xl active:translate-y-0.5 ${nearby ? '' : 'opacity-50'}`}>E</button>
-          </div>
+          <Hud state={state} bridge={bridge} actions={{
+            quests: (tab) => setPanel({ type: 'quests', tab }),
+            events: (tab) => setPanel({ type: 'quests', tab }),
+            bag: () => setPanel({ type: 'inventory' }),
+            openMap: () => setPanel({ type: 'map' }),
+            mainClaim: () => { dispatch({ type: 'MAIN_CLAIM' }); notify('🏆 Main quest complete!') },
+            travel,
+            emote: () => setEmoteOpen((o) => !o),
+            action: () => bridge.doInteract?.(),
+            inventory: () => setPanel({ type: 'inventory' }),
+            map: () => setPanel({ type: 'map' }),
+            jobs: () => setPanel({ type: 'jobs' }),
+            menu: () => setPanel({ type: 'pause' }),
+            dance: () => quick('dance'),
+            sit: () => quick('gsit'),
+            wave: () => quick('wave'),
+          }} />
+          {emoteOpen && <EmotePicker onClose={() => setEmoteOpen(false)} onPick={(id) => { multiplayer.sendEmote(id); setEmoteOpen(false) }} />}
+          {/* big run / jump button (Action = interact lives in the HUD bottom row) */}
+          <button aria-label="Jump" tabIndex={-1} onPointerDown={(e) => { e.preventDefault(); bridge.jump = true }}
+            className={`absolute z-10 grid place-items-center rounded-full border-4 border-slate-300/80 bg-gradient-to-b from-slate-600 to-slate-900 shadow-2xl ring-2 ring-slate-950/60 active:scale-95 ${!tallScreen ? 'h-14 w-14 text-2xl' : settings.touch ? 'h-20 w-20 text-4xl' : 'h-16 w-16 text-3xl'}`}
+            style={{ bottom: 'max(0.5rem, env(safe-area-inset-bottom))', right: 'max(0.5rem, env(safe-area-inset-right))' }}>🏃</button>
           {nearby && !doing && (
-            <div className="absolute left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-900/80 px-4 py-1 text-sm font-bold text-white" style={{ bottom: 'calc(max(0.5rem, env(safe-area-inset-bottom)) + 4.4rem)' }}>
+            <div className="absolute left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-900/80 px-4 py-1 text-sm font-bold text-white" style={{ bottom: `calc(max(0.5rem, env(safe-area-inset-bottom)) + ${tallScreen ? 5.8 : 4.4}rem)` }}>
               {!settings.touch && <kbd className="mr-2 rounded bg-white px-1.5 text-xs font-extrabold text-slate-900">E</kbd>}{nearby.label}
             </div>
           )}
           {settings.touch && (
-            <div className="absolute z-10" style={{ bottom: 'max(1rem, env(safe-area-inset-bottom))', left: 'max(1rem, env(safe-area-inset-left))' }}>
+            <div className="absolute z-10" style={{ bottom: tallScreen ? 'calc(max(1rem, env(safe-area-inset-bottom)) + 9rem)' : 'max(1rem, env(safe-area-inset-bottom))', left: 'max(1rem, env(safe-area-inset-left))' }}>
               <Joystick vec={bridge.vec} />
             </div>
           )}
-          {!settings.touch && (
-            <div className="pointer-events-none absolute bottom-3 left-3 z-10 hidden rounded-full bg-slate-900/70 px-3 py-1 text-xs font-bold text-white sm:block" style={{ animation: 'elph-hint 16s forwards' }}>
+          {!settings.touch && tallScreen && (
+            <div className="pointer-events-none absolute bottom-32 left-1/2 z-10 hidden -translate-x-1/2 rounded-full bg-slate-900/70 px-3 py-1 text-xs font-bold text-white sm:block" style={{ animation: 'elph-hint 16s forwards' }}>
               WASD move · Space jump · E interact · I inventory · drag to rotate · scroll to zoom
             </div>
           )}
@@ -244,6 +289,7 @@ export default function App() {
       {panel?.type === 'fishing' && <FishingPanel state={state} onCast={cast} onCatch={caught} onSell={sellFish} onPhase={(p) => { bridge.actPhase = p }} onClose={close} />}
       {panel?.type === 'jobs' && <JobPanel here={here} state={state} notify={notify} onClose={close}
         onComplete={(id) => { dispatch({ type: 'WORK', id }); notify(`✅ +₱${JOBS[id].pay} earned`) }} />}
+      {panel?.type === 'quests' && <QuestsPanel state={state} dispatch={dispatch} tab={panel.tab} onGo={travel} onClose={close} />}
       {panel?.type === 'map' && <MapPanel onGo={travel} onClose={close} getPos={() => bridge.mini} />}
       {panel?.type === 'house' && <HouseRoom state={state} touch={settings.touch} onSleep={sleep} onSave={(furniture) => dispatch({ type: 'FURNITURE', furniture })} onClose={close} />}
       {panel?.type === 'dialog' && <DialogPanel npc={panel.npc} onShop={(id) => setPanel({ type: 'shop', id })} onClose={close} />}
@@ -274,7 +320,7 @@ export default function App() {
         <ConfirmModal {...confirm} onCancel={() => setConfirm(null)} onConfirm={() => { const go = confirm.onConfirm; setConfirm(null); go() }} />
       )}
       {screen === 'game' && <RotatePrompt />}
-      {toast && <div className="absolute left-1/2 top-24 z-50 -translate-x-1/2 rounded-full bg-yellow-300 px-4 py-2 font-extrabold text-slate-900 shadow-lg">{toast}</div>}
+      {toast && <div className="absolute left-1/2 top-[42%] z-50 -translate-x-1/2 rounded-full bg-yellow-300 px-4 py-2 font-extrabold text-slate-900 shadow-lg">{toast}</div>}
     </div>
   )
 }

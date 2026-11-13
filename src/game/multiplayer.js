@@ -14,6 +14,7 @@ class Multiplayer {
   constructor() {
     this.socket = null
     this.bridge = null
+    this.emotes = new Map() // playerId -> { emote, t0 }  (read every frame by EmoteBubbles.jsx)
     this.remotes = new Map() // id -> { id, username, level, look, online, cur, tgt }  (read every frame by RemotePlayers.jsx)
     this.me = null
     this.timer = null
@@ -73,7 +74,8 @@ class Multiplayer {
     })
 
     socket.on('player:joined', (p) => { this.setRemote(p); this.refresh() })
-    socket.on('player:left', ({ id }) => { this.remotes.delete(id); this.refresh() })
+    socket.on('player:left', ({ id }) => { this.remotes.delete(id); this.emotes.delete(id); this.refresh() })
+    socket.on('emote:show', ({ id, emote }) => this.emotes.set(id, { emote, t0: performance.now() }))
     socket.on('player:presence', ({ id, online }) => {
       const r = this.remotes.get(id)
       if (r) { r.online = online; this.refresh() }
@@ -123,6 +125,7 @@ class Multiplayer {
     this.bridge = null
     this.me = null
     this.remotes.clear()
+    this.emotes.clear()
     this.last = null
     this.ended = false
     mpStore.set({ status: 'offline', error: null, selfId: null, selfLabel: '', players: [], onlineCount: 0, chat: [], unread: 0 })
@@ -141,6 +144,13 @@ class Multiplayer {
       if (!this.socket?.connected) return resolve({ ok: false, error: 'offline' })
       this.socket.timeout(5000).emit('chat:send', text, (err, res) => resolve(err ? { ok: false, error: 'timeout' } : res))
     })
+  }
+
+  // Shows the emote right away on your own character, then tells the server so everyone else sees it.
+  sendEmote(emote) {
+    const id = this.me?.id ?? 'me'
+    this.emotes.set(id, { emote, t0: performance.now() })
+    if (this.socket?.connected) this.socket.emit('emote:send', emote)
   }
 
   // ---- internals ----

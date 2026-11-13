@@ -6,6 +6,7 @@ import { WW, WH, PLACES, NPCS, LOCATIONS, ROAD2, VROAD, POND } from './world'
 import { weatherIndex } from '../data/gameData'
 import Grass from './Grass'
 import RemotePlayers from './RemotePlayers'
+import Collectibles from './Collectibles'
 import { useMp } from '../store/mpStore'
 
 // Simulation runs in the same pixel units as the old 2D game (x, z = old x, y).
@@ -53,6 +54,13 @@ const BILLBOARDS = [
 ]
 const BB_POST = 100 // posts stand this far (px) left / right of the billboard center
 
+// ---------- gate arches sa dulo ng mga kalsada [x, z gitna ng kalsada] ----------
+const GATES = [
+  [60, 620], [WW - 60, 620],
+  [60, ROAD2.y + ROAD2.h / 2], [WW - 60, ROAD2.y + ROAD2.h / 2],
+]
+const GATE_HALF = 100 // layo ng bawat haligi mula sa gitna ng kalsada (px)
+
 // ---------- collision (px) ----------
 const R = 11
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
@@ -60,9 +68,12 @@ const BOXES = [
   [POND.x, POND.z, POND.x + POND.w, POND.z + POND.d], // tubig ng palaisdaan
   ...PLACES.filter((pl) => pl.base > 600).map((pl) => [pl.x, pl.base - 200, pl.x + pl.w, pl.base]), // terminal, mall, police, gym, south row
   [516, 802, 524, 810], [636, 802, 644, 810], // mga poste ng "Parke" sign
+  ...GATES.flatMap(([x, z]) => [-GATE_HALF, GATE_HALF].map((dz) => [x - 12, z + dz - 12, x + 12, z + dz + 12])), // haligi ng gate arch
   ...BILLBOARDS.flatMap((b) => [-BB_POST, BB_POST].map((dx) => [b.x + dx - 10, b.z - 10, b.x + dx + 10, b.z + 10])), // billboard posts
 ]
 const BENCHES = [[430, 1180], [730, 1285], [2230, 2520], [2570, 2520]].map(([x, z]) => [x - 42, z - 17, x + 42, z + 17]) // mga bench sa park
+const BENCH_POS = [[430, 1180], [730, 1285], [2230, 2520], [2570, 2520]] // gitna ng bawat bench (px), pareho sa BENCHES
+const SIT_Y = 0.28 // taas ng player kapag nakaupo (nasa ibabaw ng upuan)
 let DYN = [] // moving jeepneys (traffic + terminal jeepneys), refreshed every frame
 
 // ----- jeepneys at the terminal you can ride -----
@@ -126,6 +137,62 @@ const camHit = (x, y, z) =>
   y < 10.8 && PLACES.some((pl) => x > pl.x * S - 0.4 && x < (pl.x + pl.w) * S + 0.4 && z > (pl.base - 200) * S - 0.4 && z < pl.base * S + 0.4)
 const lerpAngle = (a, b, t) => a + ((((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * t)
 
+// ---------- basang lupa (wet ground) ----------
+// Bawat kulay ng lupa ay may sariling shared material na dumidilim kapag umuulan at natutuyo pagkatapos.
+const WET_DARK = { '#4b5563': 0.55, '#d6d3d1': 0.62, '#cfc8bb': 0.6, '#e7d3a7': 0.65, '#e9dab4': 0.65, '#5fae5a': 0.8, '#86c66b': 0.8 }
+const WET_MATS = Object.fromEntries(Object.entries(WET_DARK).map(([c, k]) => [c, {
+  mat: new THREE.MeshLambertMaterial({ color: c }), dry: new THREE.Color(c), wet: new THREE.Color(c).multiplyScalar(k),
+}]))
+const wetMat = (c) => WET_MATS[c]?.mat
+const setWet = (w) => { for (const m of Object.values(WET_MATS)) m.mat.color.copy(m.dry).lerp(m.wet, w) }
+
+const PUDDLE_MAT = new THREE.MeshLambertMaterial({ color: '#8fb0c8', transparent: true, opacity: 0.55, depthWrite: false })
+const PUDDLES = (() => {
+  let s = 11
+  const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647
+  // [x, z, w, d, bilang] — main road, vertical road, south road
+  const zones = [[0, 548, WW, 144, 30], [VROAD.x + 8, 706, VROAD.w - 16, ROAD2.y - 726, 12], [0, ROAD2.y + 8, WW, ROAD2.h - 16, 30]]
+  const out = []
+  for (const [zx, zz, zw, zd, n] of zones) {
+    for (let i = 0; i < n; i++) out.push({ x: zx + rnd() * zw, z: zz + rnd() * zd, r: 0.8 + rnd() * 1.6, sq: 0.6 + rnd() * 0.5, th: rnd() * 0.55, ph: rnd() })
+  }
+  return out
+})()
+function Puddles({ envR }) {
+  const refs = useRef([]), rings = useRef([])
+  useFrame(({ clock }) => {
+    const { wet, rain } = envR.current, t = clock.elapsedTime
+    PUDDLES.forEach((p, i) => {
+      const g = refs.current[i], r = rings.current[i]
+      if (!g) return
+      const k = clamp((wet - p.th) / (1 - p.th), 0, 1)
+      g.visible = k > 0.03
+      if (!g.visible) return
+      const sc = p.r * (0.35 + 0.65 * k)
+      g.children[0].scale.set(sc, sc * p.sq, 1)
+      const on = rain > 0.3 && k > 0.4
+      r.visible = on
+      if (on) {
+        const q = (t * 0.9 + p.ph) % 1, rs = sc * (0.3 + 0.9 * q)
+        r.scale.set(rs, rs * p.sq, 1)
+        r.material.opacity = (1 - q) * 0.55
+      }
+    })
+  })
+  return (
+    <group>
+      {PUDDLES.map((p, i) => (
+        <group key={i} ref={(g) => (refs.current[i] = g)} position={[p.x * S, 0.1, p.z * S]} visible={false}>
+          <mesh rotation-x={-Math.PI / 2}><circleGeometry args={[1, 20]} /><primitive object={PUDDLE_MAT} attach="material" dispose={null} /></mesh>
+          <mesh ref={(m) => (rings.current[i] = m)} rotation-x={-Math.PI / 2} position={[0, 0.01, 0]}>
+            <ringGeometry args={[0.85, 1, 24]} /><meshBasicMaterial color="#ffffff" transparent opacity={0.4} depthWrite={false} />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  )
+}
+
 // ---------- tiny helpers ----------
 function Box({ p = [0, 0, 0], s = [1, 1, 1], c = '#ffffff', r, cast = true, receive = true, ...rest }) {
   return (
@@ -143,9 +210,15 @@ function Cyl({ p = [0, 0, 0], a = [1, 1, 1, 16], c = '#ffffff', r, ...rest }) {
     </mesh>
   )
 }
-// flat slab on the ground, sizes in px
+// flat slab on the ground, sizes in px (lupa/kalsada/bangketa: dumidilim kapag basa)
 function Rect({ x, z, w, d, y = 0, h = 0.04, c }) {
-  return <Box p={[(x + w / 2) * S, y + h / 2, (z + d / 2) * S]} s={[w * S, h, d * S]} c={c} cast={false} />
+  const wm = wetMat(c)
+  return (
+    <mesh position={[(x + w / 2) * S, y + h / 2, (z + d / 2) * S]} receiveShadow>
+      <boxGeometry args={[w * S, h, d * S]} />
+      {wm ? <primitive object={wm} attach="material" dispose={null} /> : <meshLambertMaterial color={c} />}
+    </mesh>
+  )
 }
 
 // ---------- character ----------
@@ -188,6 +261,7 @@ const ACT_ALIAS = {
   choir: 'sing', karaoke: 'sing', zumba: 'dance', adobo: 'cook', bake: 'cook',
 }
 // mga props na nakapirmi sa paligid ng character habang ginagawa ang activity
+const QUICK_ACTS = new Set(['wave', 'dance', 'gsit']) // HUD quick emotes: any move / jump input cancels them
 const WORLD_PROPS = { basketball: ['hoop', 'ball'], oddjob: ['crate'], haircut: ['chair', 'cape', 'scissors'], checkup: ['bed'], hospbed: ['bed', 'blanket'], fish: ['bobber'] }
 const HAND_R = { workout: 'dumbbell', oddjob: 'hammer', fish: 'rod', tanod: 'flashlight', stroll: 'bag', cleanup: 'broom', sing: 'mic', cook: 'pan' }
 const HAND_L = { workout: 'dumbbell', read: 'book', tutor: 'book' }
@@ -481,6 +555,12 @@ export const Character = forwardRef(function Character({ look, label, cry, bubbl
             if (an.current.sc1) { an.current.sc1.rotation.z = 0.35 * sn(tt * 14) + 0.1; an.current.sc2.rotation.z = -0.35 * sn(tt * 14) - 0.1 }
             break
           }
+          case 'sit': // nakaupo sa bench
+            lL.rotation.x = lR.rotation.x = -1.5
+            aL.rotation.x = aR.rotation.x = -0.35 + sn(tt * 1.2) * 0.03
+            aL.rotation.z = 0.12; aR.rotation.z = -0.12
+            hd.rotation.y = sn(tt * 0.5) * 0.18
+            break
           case 'checkup': case 'hospbed': { // nakahiga sa kama
             bd.rotation.x = -Math.PI / 2; bd.position.y = 1.15 + sn(tt * 1.8) * 0.02; bd.position.z = 1.9
             lL.rotation.x = lR.rotation.x = 0; aL.rotation.x = aR.rotation.x = 0; aL.rotation.z = 0.12; aR.rotation.z = -0.12
@@ -501,6 +581,25 @@ export const Character = forwardRef(function Character({ look, label, cry, bubbl
             if (ring) { const q = (tt * (ph === 'bite' ? 1.6 : 0.5)) % 1; ring.scale.setScalar(0.5 + q * 2); ring.material.opacity = (1 - q) * 0.6 }
             break
           }
+          case 'wave': // kumakaway
+            aR.rotation.x = -2.6; aR.rotation.z = -0.45 + sn(tt * 12) * 0.45
+            aL.rotation.x = -0.05; aL.rotation.z = 0.1
+            hd.rotation.z = sn(tt * 6) * 0.06; hd.rotation.y = 0.15
+            break
+          case 'dance': // sayaw: talbog, salitang braso, indayog
+            bd.position.y = Math.abs(sn(tt * 6)) * 0.3
+            aL.rotation.x = -2.2 + sn(tt * 6) * 0.6; aR.rotation.x = -2.2 - sn(tt * 6) * 0.6
+            aL.rotation.z = 0.4; aR.rotation.z = -0.4
+            lL.rotation.x = sn(tt * 6) * 0.5; lR.rotation.x = -sn(tt * 6) * 0.5
+            bd.rotation.z = sn(tt * 3) * 0.12; hd.rotation.z = sn(tt * 6) * 0.1
+            break
+          case 'gsit': // nakaupo sa lupa (HUD Sit button)
+            bd.position.y = -0.85
+            lL.rotation.x = lR.rotation.x = -1.5
+            aL.rotation.x = aR.rotation.x = -0.35 + sn(tt * 1.2) * 0.03
+            aL.rotation.z = 0.12; aR.rotation.z = -0.12
+            hd.rotation.y = sn(tt * 0.5) * 0.18
+            break
           default: break
         }
       } else if (g.userData.air) { // nasa ere: nakataas ang kamay, nakatiklop ang binti
@@ -1275,12 +1374,12 @@ function Ground() {
   const dashesH = []
   for (let x = 0; x < WW; x += 90) if (x < VROAD.x - 40 || x > VROAD.x + VROAD.w + 40) dashesH.push(x)
   const dashesV = []
-  for (let y = 770; y < WH; y += 90) if (y < ROAD2.y - 20 || y > ROAD2.y + ROAD2.h) dashesV.push(y)
+  for (let y = 770; y < ROAD2.y - 20; y += 90) dashesV.push(y) // ang vertical road ay nagtatapos sa south road (T-junction)
   return (
     <group>
       <mesh rotation-x={-Math.PI / 2} position={[(WW * S) / 2, -0.01, (WH * S) / 2]} receiveShadow>
         <planeGeometry args={[700, 700]} />
-        <meshLambertMaterial color="#86c66b" />
+        <primitive object={wetMat('#86c66b')} attach="material" dispose={null} />
       </mesh>
       {/* park + paths + concrete lot */}
       <Rect x={60} z={800} w={1120} d={840} h={0.02} c="#5fae5a" />
@@ -1294,26 +1393,47 @@ function Ground() {
       {[1200, 1400].map((vx) => (
         <group key={vx}>
           <Rect x={vx} z={760} w={40} d={ROAD2.y - 40 - 760} h={0.16} c="#d6d3d1" />
-          <Rect x={vx} z={ROAD2.y + ROAD2.h + 40} w={40} d={WH - (ROAD2.y + ROAD2.h + 40)} h={0.16} c="#d6d3d1" />
         </group>
       ))}
       {/* second road (south) + sidewalks */}
       {[[0, 1240], [1400, WW - 1400]].map(([sx, sw]) => (
         <group key={sx}>
           <Rect x={sx} z={ROAD2.y - 40} w={sw} d={40} h={0.16} c="#d6d3d1" />
-          <Rect x={sx} z={ROAD2.y + ROAD2.h} w={sw} d={40} h={0.16} c="#d6d3d1" />
-          <Rect x={sx} z={2160} w={sw} d={60} h={0.16} c="#d6d3d1" />
         </group>
       ))}
+      {/* bangketa sa timog ng south road at sa harap ng south row: tuloy-tuloy na */}
+      <Rect x={0} z={ROAD2.y + ROAD2.h} w={WW} d={40} h={0.16} c="#d6d3d1" />
+      <Rect x={0} z={2160} w={WW} d={60} h={0.16} c="#d6d3d1" />
       <Rect x={0} z={ROAD2.y} w={WW} d={ROAD2.h} h={0.06} c="#4b5563" />
       {dashesH.map((x) => <Rect key={'h2' + x} x={x} z={ROAD2.y + ROAD2.h / 2 - 4} w={48} d={8} y={0.06} h={0.02} c="#fcd116" />)}
       {/* south plaza */}
-      <Rect x={2150} z={2230} w={500} d={420} h={0.05} c="#e7d3a7" />
+      <Rect x={2150} z={2230} w={500} d={420} h={0.05} c="#e9dab4" />
+      {/* guhit na tile sa loob + curb sa paligid para hindi putol ang gilid */}
+      <Rect x={2166} z={2246} w={468} d={8} y={0.05} h={0.01} c="#c9b27c" />
+      <Rect x={2166} z={2626} w={468} d={8} y={0.05} h={0.01} c="#c9b27c" />
+      <Rect x={2166} z={2254} w={8} d={372} y={0.05} h={0.01} c="#c9b27c" />
+      <Rect x={2626} z={2254} w={8} d={372} y={0.05} h={0.01} c="#c9b27c" />
+      <Rect x={2136} z={2216} w={528} d={14} h={0.14} c="#a8a29e" />
+      <Rect x={2136} z={2650} w={528} d={14} h={0.14} c="#a8a29e" />
+      <Rect x={2136} z={2230} w={14} d={420} h={0.14} c="#a8a29e" />
+      <Rect x={2650} z={2230} w={14} d={420} h={0.14} c="#a8a29e" />
+      {[[2150, 2230], [2650, 2230], [2150, 2650], [2650, 2650]].map(([bx, bz]) => (
+        <mesh key={'pl' + bx + '_' + bz} position={[bx * S, 0.7, bz * S]} castShadow>
+          <sphereGeometry args={[0.95, 10, 8]} /><meshLambertMaterial color="#2f8f3e" />
+        </mesh>
+      ))}
       {/* roads */}
       <Rect x={0} z={540} w={WW} d={160} h={0.06} c="#4b5563" />
-      <Rect x={1240} z={700} w={160} d={WH - 700} h={0.06} c="#4b5563" />
+      <Rect x={1240} z={700} w={160} d={ROAD2.y - 700} h={0.06} c="#4b5563" />
       {dashesH.map((x) => <Rect key={'h' + x} x={x} z={618} w={48} d={8} y={0.06} h={0.02} c="#fcd116" />)}
       {dashesV.map((y) => <Rect key={'v' + y} x={1316} z={y} w={8} d={48} y={0.06} h={0.02} c="#fcd116" />)}
+      {/* tawiran (zebra crossing) sa main road at south road */}
+      {[700, 2000].flatMap((cx) => Array.from({ length: 7 }, (_, i) => (
+        <group key={'zc' + cx + '_' + i}>
+          <Rect x={cx + i * 36} z={552} w={18} d={136} y={0.06} h={0.02} c="#f1f5f9" />
+          <Rect x={cx + i * 36} z={ROAD2.y + 12} w={18} d={136} y={0.06} h={0.02} c="#f1f5f9" />
+        </group>
+      )))}
     </group>
   )
 }
@@ -1406,6 +1526,62 @@ function Pond() {
   )
 }
 
+// gate arch sa dulo ng kalsada: para hindi mukhang putol ang daan
+function Gate({ x, z }) {
+  return (
+    <group position={[x * S, 0, z * S]}>
+      {[-1, 1].map((d) => (
+        <group key={d} position={[0, 0, d * GATE_HALF * S]}>
+          <Box p={[0, 0.4, 0]} s={[2.4, 0.8, 2.4]} c="#cbd5e1" />
+          <Box p={[0, 4.6, 0]} s={[1.6, 8.4, 1.6]} c="#0038a8" />
+          <Box p={[0, 9.0, 0]} s={[2.1, 0.5, 2.1]} c="#fcd116" />
+        </group>
+      ))}
+      <Box p={[0, 9.8, 0]} s={[1.3, 1.7, GATE_HALF * 2 * S + 2.2]} c="#ce1126" />
+      <Box p={[0, 10.8, 0]} s={[1.6, 0.35, GATE_HALF * 2 * S + 2.6]} c="#fcd116" />
+      <Text position={[0.68, 9.8, 0]} rotation={[0, Math.PI / 2, 0]} fontSize={1.0} color="#ffffff" outlineWidth={0.05} outlineColor="#7f1d1d" anchorX="center" anchorY="middle">MABUHAY!</Text>
+      <Text position={[-0.68, 9.8, 0]} rotation={[0, -Math.PI / 2, 0]} fontSize={1.0} color="#ffffff" outlineWidth={0.05} outlineColor="#7f1d1d" anchorX="center" anchorY="middle">MABUHAY!</Text>
+    </group>
+  )
+}
+
+// ---------- hangganan ng mapa: hedge + mga puno sa labas, para hindi parang putol ang mundo ----------
+function Tree({ x, z, k = 1 }) {
+  return (
+    <group position={[x * S, 0, z * S]} scale={k}>
+      <Cyl p={[0, 1.4, 0]} a={[0.3, 0.45, 2.8, 7]} c="#6b4423" />
+      <mesh position={[0, 4.2, 0]} castShadow><sphereGeometry args={[2.1, 10, 8]} /><meshLambertMaterial color="#2f8f3e" /></mesh>
+      <mesh position={[0.9, 3.4, 0.6]} castShadow><sphereGeometry args={[1.5, 10, 8]} /><meshLambertMaterial color="#38a04a" /></mesh>
+    </group>
+  )
+}
+const EDGE_TREES = (() => {
+  const out = []
+  for (let x = 100, i = 0; x < WW; x += 240, i++) out.push([x + (i % 3) * 30, WH + 70 + (i % 2) * 50, 0.9 + (i % 4) * 0.12])
+  for (let z = 560, i = 0; z < WH; z += 240, i++) {
+    out.push([-70 - (i % 2) * 50, z, 0.9 + (i % 3) * 0.15])
+    out.push([WW + 70 + (i % 2) * 50, z + 60, 0.9 + (i % 4) * 0.1])
+  }
+  return out
+})()
+function Perimeter() {
+  const w = WW * S, hz = (WH - 492) * S, cz = ((492 + WH) / 2) * S
+  return (
+    <group>
+      {/* timog */}
+      <Box p={[w / 2, 1.2, WH * S + 0.4]} s={[w + 4, 2.4, 1.2]} c="#3f8f3a" />
+      <Box p={[w / 2, 2.5, WH * S + 0.4]} s={[w + 4, 0.3, 1.4]} c="#52ad4c" />
+      {/* kanluran */}
+      <Box p={[-0.4, 1.2, cz]} s={[1.2, 2.4, hz]} c="#3f8f3a" />
+      <Box p={[-0.4, 2.5, cz]} s={[1.4, 0.3, hz]} c="#52ad4c" />
+      {/* silangan */}
+      <Box p={[w + 0.4, 1.2, cz]} s={[1.2, 2.4, hz]} c="#3f8f3a" />
+      <Box p={[w + 0.4, 2.5, cz]} s={[1.4, 0.3, hz]} c="#52ad4c" />
+      {EDGE_TREES.map(([x, z, k], i) => <Tree key={i} x={x} z={z} k={k} />)}
+    </group>
+  )
+}
+
 function Backdrop() {
   const mountains = []
   for (let x = -40; x < WW * S + 40; x += 16) mountains.push(x)
@@ -1457,7 +1633,7 @@ export default function Scene3D({ bridge, look }) {
   const selfLabel = useMp((s) => s.selfLabel) // '' when playing offline
   const light = useRef()
   const hemi = useRef(), fogR = useRef(), skyG = useRef(), sunM = useRef(), moonM = useRef(), starsR = useRef()
-  const envR = useRef({ t: null, cloud: 0, rain: 0 })
+  const envR = useRef({ t: null, cloud: 0, rain: 0, wet: 0 })
   const skyGeo = useMemo(() => {
     const g = new THREE.SphereGeometry(400, 24, 16)
     const n = g.attributes.position.count, ys = new Float32Array(n)
@@ -1483,6 +1659,7 @@ export default function Scene3D({ bridge, look }) {
   const keys = useRef(new Set())
   const cam = useRef({ yaw: 0, dist: 12, px: 300, pz: 520, snap: true })
   const near = useRef({ key: null, best: null })
+  const sit = useRef(null) // { k } = index ng bench na inuupuan
 
   const startRide = (k) => {
     const r = rides.current[k]
@@ -1499,11 +1676,26 @@ export default function Scene3D({ bridge, look }) {
     r.rider = false
     riding.current = null
   }
+  const sitDown = (k) => {
+    const [bx, bz] = BENCH_POS[k]
+    sit.current = { k }
+    ps.current.x = bx; ps.current.z = bz + 4
+    ps.current.face = 0 // nakaharap palayo sa sandalan
+  }
+  const standUp = () => {
+    const s = sit.current
+    if (!s) return
+    const [bx, bz] = BENCH_POS[s.k]
+    ps.current.x = bx; ps.current.z = bz + 42 // tatayo sa harap ng bench
+    sit.current = null
+  }
   const interact = () => {
     if (bridge.paused || bridge.act) return
     if (riding.current != null) return stopRide()
+    if (sit.current) return standUp()
     const best = near.current.best
     if (!best) return
+    if (best.type === 'bench') return sitDown(best.k)
     if (best.type === 'ride') return startRide(best.k)
     bridge.onInteract?.(best)
   }
@@ -1512,6 +1704,7 @@ export default function Scene3D({ bridge, look }) {
     bridge.doInteract = interact
     bridge.teleport = (id) => {
       if (riding.current != null) { rides.current[riding.current].rider = false; riding.current = null }
+      sit.current = null
       const [x, z] = LOCATIONS[id]
       ps.current.x = x; ps.current.z = z
       cam.current.snap = true
@@ -1519,6 +1712,7 @@ export default function Scene3D({ bridge, look }) {
     // multiplayer: the server restores the saved position on login and snaps you back after an impossible move
     bridge.setPos = (x, z) => {
       if (riding.current != null) { rides.current[riding.current].rider = false; riding.current = null }
+      sit.current = null
       ps.current.x = x; ps.current.z = z
       cam.current.snap = true
     }
@@ -1594,6 +1788,13 @@ export default function Scene3D({ bridge, look }) {
     if (!onJeep) pushOut(p)
     npcState.current.forEach(pushOut)
 
+    // HUD quick emotes (wave / dance / sit): moving or jumping cancels them
+    if (QUICK_ACTS.has(bridge.act)) {
+      const moveKey = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].some((q) => k.has(q))
+      if (moveKey || Math.abs(vec.x) > 0.15 || Math.abs(vec.y) > 0.15 || jumpS.current.req || bridge.jump) {
+        bridge.act = null; jumpS.current.req = false; bridge.jump = false
+      }
+    }
     // ----- player input (camera-relative) -----
     let ix = 0, iy = 0
     if (!bridge.paused && !onJeep && !bridge.act) {
@@ -1605,19 +1806,23 @@ export default function Scene3D({ bridge, look }) {
     const sn = Math.sin(c.yaw), cs = Math.cos(c.yaw)
     const mx = ix * cs + iy * sn
     const mz = -ix * sn + iy * cs
-    step(p, mx * 165 * dt, mz * 165 * dt)
-    const moving = len > 0.1
+    // nakaupo: tatayo kapag gumalaw o tumalon
+    if (sit.current && (len > 0.1 || jumpS.current.req || bridge.jump)) { standUp(); jumpS.current.req = false; bridge.jump = false }
+    const seated = !!sit.current
+    if (!seated) step(p, mx * 165 * dt, mz * 165 * dt)
+    const moving = !seated && len > 0.1
     if (moving) p.face = lerpAngle(p.face, Math.atan2(mx, mz), 1 - Math.exp(-12 * dt))
+    else if (seated) p.face = lerpAngle(p.face, 0, 1 - Math.exp(-10 * dt))
     const pg = player.current
     pg.userData.walk = (pg.userData.walk || 0) + ((moving ? 1 : 0) - (pg.userData.walk || 0)) * Math.min(1, dt * 12)
     const J = jumpS.current
-    if ((J.req || bridge.jump) && J.y === 0 && !bridge.paused && !bridge.act && !onJeep) J.vy = 13
+    if ((J.req || bridge.jump) && J.y === 0 && !bridge.paused && !bridge.act && !onJeep && !sit.current) J.vy = 13
     J.req = false; bridge.jump = false
     if (J.vy !== 0 || J.y > 0) { J.y += J.vy * dt; J.vy -= 40 * dt; if (J.y <= 0) { J.y = 0; J.vy = 0 } }
     pg.userData.air = J.y > 0.02 ? 1 : 0
-    pg.position.set(p.x * S, J.y, p.z * S)
+    pg.position.set(p.x * S, J.y + (sit.current ? SIT_Y : 0), p.z * S)
     if (bridge.act && !onJeep) p.face = lerpAngle(p.face, bridge.act === 'fish' ? 0 : c.yaw, 1 - Math.exp(-10 * dt))
-    pg.userData.act = onJeep ? null : bridge.act || null
+    pg.userData.act = onJeep ? null : bridge.act || (sit.current ? 'sit' : null)
     pg.userData.phase = bridge.actPhase
     pg.rotation.y = p.face
 
@@ -1853,6 +2058,14 @@ export default function Scene3D({ bridge, look }) {
       const dd = Math.hypot(p.x - clamp(p.x, a, c), p.z - clamp(p.z, b, d))
       if (dd < Math.min(bd, 50)) { bd = dd; best = { type: 'ride', id: 'ride' + k, k, label: '🚌 Ride Jeepney' } }
     })
+    // bench: puwedeng umupo (maliban kung inuupuan na ng umiiyak na NPC)
+    if (!sit.current) {
+      BENCH_POS.forEach(([bx, bz], k) => {
+        const d = Math.hypot(p.x - bx, p.z - bz)
+        const taken = NPCS.some((n, i) => n.cry && (npcState.current[i].mode === 'cry' || npcState.current[i].mode === 'say') && Math.hypot(npcState.current[i].x - bx, npcState.current[i].z - bz) < 60)
+        if (!taken && d < Math.min(bd, 70)) { bd = d; best = { type: 'bench', id: 'bench' + k, k, label: '🪑 Sit' } }
+      })
+    } else best = { type: 'sitoff', id: 'standup', label: 'Stand up' }
     if (riding.current != null) best = { type: 'rideoff', id: 'off', label: 'Get off Jeepney' }
     const key = best && best.type + best.id
     if (key !== near.current.key) {
@@ -1893,12 +2106,16 @@ export default function Scene3D({ bridge, look }) {
     const eAbs = ev.day * 1440 + ev.minutes
     const wi = weatherIndex(ev.day)
     const cloudT = [0, 0.55, 1][wi], rainT = [0, 0, 1][wi]
-    if (E.t == null) { E.t = eAbs; E.cloud = cloudT; E.rain = rainT }
+    if (E.t == null) { E.t = eAbs; E.cloud = cloudT; E.rain = rainT; E.wet = rainT > 0.5 ? 1 : 0 }
     if (eAbs < E.t || eAbs - E.t > 180) E.t = eAbs // natulog / bagong araw
     else E.t += (eAbs - E.t) * (1 - Math.exp(-2.5 * dt))
     const wk = 1 - Math.exp(-0.8 * dt)
     E.cloud += (cloudT - E.cloud) * wk
     E.rain += (rainT - E.rain) * wk
+    // basang lupa: unti-unting nababasa habang umuulan, dahan-dahang natutuyo pagkatapos (~1.5 min)
+    if (E.rain > 0.3) E.wet += (1 - E.wet) * (1 - Math.exp(-0.12 * dt))
+    else E.wet = Math.max(0, E.wet - dt * 0.012)
+    setWet(E.wet)
     const hr = (E.t % 1440) / 60
     const sk = skyAt(hr, E.cloud)
 
@@ -1980,6 +2197,9 @@ export default function Scene3D({ bridge, look }) {
       />
 
       <Ground />
+      <Puddles envR={envR} />
+      {GATES.map(([x, z]) => <Gate key={'gate' + x + '_' + z} x={x} z={z} />)}
+      <Perimeter />
       <Backdrop />
       <Clouds envR={envR} />
       <Rain envR={envR} cam={cam} />
@@ -2037,6 +2257,7 @@ export default function Scene3D({ bridge, look }) {
       <Character ref={player} look={look} label={selfLabel || undefined} acts />
       {NPCS.map((n, i) => <Character key={n.id} ref={npcRefs.current[i]} look={n.look} label={n.name} cry={n.cry} bubble={n.cry ? n.line : undefined} />)}
       <RemotePlayers />
+      <Collectibles bridge={bridge} />
     </>
   )
 }

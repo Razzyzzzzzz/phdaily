@@ -1,5 +1,5 @@
 // Modal panel: kasya sa phone (dvh + safe-area), nasasa-scroll ang laman, malaki ang close button para sa daliri
-export default function Panel({ title, onClose, children }) {
+export default function Panel({ title, onClose, children, wide = false }) {
   return (
     <div
       role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}
@@ -10,7 +10,7 @@ export default function Panel({ title, onClose, children }) {
       }}
     >
       <div
-        className="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-2xl border-4 border-blue-700 bg-sky-100 shadow-2xl"
+        className={`flex max-h-full w-full ${wide ? 'max-w-2xl' : 'max-w-md'} flex-col overflow-hidden rounded-2xl border-4 border-blue-700 bg-sky-100 shadow-2xl`}
         style={{ animation: 'elph-pop 0.2s both' }} onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between bg-gradient-to-b from-blue-500 to-blue-700 px-3 py-2 text-white">

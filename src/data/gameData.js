@@ -213,5 +213,16 @@ export const fmtTime = (day, m) => {
 }
 export const weatherIndex = (day) => (day * 5) % 3 // 0 = Sunny, 1 = Cloudy, 2 = Rainy
 export const weather = (day) => [['☀️', 'Sunny'], ['⛅', 'Cloudy'], ['🌧️', 'Rainy']][weatherIndex(day)]
-export const level = (s) => 1 + Math.floor(s.stats.jobs / 3)
+// ---------- XP / Level (replaces the old jobs-based level) ----------
+// xpNeed(lv) = XP needed to go from level `lv` to `lv + 1`
+export const xpNeed = (lv) => 100 + (lv - 1) * 50
+// total XP needed to REACH level `lv`
+export const xpToReach = (lv) => { let t = 0; for (let i = 1; i < lv; i++) t += xpNeed(i); return t }
+// { level, into, need }  -> `into` / `need` is the progress bar inside the current level
+export const xpInfo = (xp = 0) => {
+  let lv = 1, rem = Math.max(0, xp)
+  while (rem >= xpNeed(lv)) { rem -= xpNeed(lv); lv++ }
+  return { level: lv, into: rem, need: xpNeed(lv) }
+}
+export const level = (s) => xpInfo(s.xp || 0).level
 export const effectText = (it) => [it.hunger && `🍽️ +${it.hunger}`, it.energy && `⚡ +${it.energy}`, it.health && `❤️ +${it.health}`].filter(Boolean).join('  ')

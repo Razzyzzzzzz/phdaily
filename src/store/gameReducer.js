@@ -1,4 +1,8 @@
-import { ITEMS, JOBS, MISSIONS, LEARN, learnReward } from '../data/gameData'
+import { ITEMS, JOBS, MISSIONS, LEARN, learnReward, xpInfo, xpToReach } from '../data/gameData'
+import {
+  MAIN_QUESTS, DAILY_BY_ID, DAILY_BONUS, genDaily, dailyProgress, LOGIN_REWARDS, ACH_BY_ID,
+  COLLECT_BY_ID, EVENT_BY_ID, eventState, eventProgress, prevDayKey,
+} from '../data/progression'
 const c = (v) => Math.max(0, Math.min(100, v))
 
 export const initialState = {
@@ -6,15 +10,55 @@ export const initialState = {
   inventory: {}, stats: { jobs: 0, play: 0, bought: 0, slept: 0, fished: 0, activities: 0, acts: {}, quizzes: 0, learned: 0, perfects: 0 }, claimed: {}, furniture: null,
   modules: [], // na-upload na learning modules: { id, title, lesson, questions: [{ q, o: [], a }] }
   learn: {},   // progreso kada module (key = module id): { best, passed, perfect, tries }
+  // ---- progression (XP / gems / quests / rewards) ----
+  xp: 0, gems: 50, levelUp: null,
+  mq: 0,            // index ng kasalukuyang main quest (MAIN_QUESTS)
+  visited: {},      // { placeId: true } mga lugar na napuntahan na
+  collected: {},    // { collectibleId: true }
+  ach: {},          // { achievementId: true } na-claim na
+  daily: null,      // { date, ids, base, claimed, bonus }
+  login: { last: null, streak: 0, claimed: null },
+  events: {},       // { [slot]: { evId, base, claimed } }
 }
 
-export function reducer(s, a) {
+// Give a reward ({ money, xp, gems }). Each level gained pays ₱100 + 5 gems and flags `levelUp` for the HUD toast.
+export function grant(s, r = {}) {
+  const xp = (s.xp || 0) + (r.xp || 0)
+  const before = xpInfo(s.xp || 0).level, after = xpInfo(xp).level
+  let money = s.money + (r.money || 0), gems = (s.gems || 0) + (r.gems || 0), levelUp = s.levelUp
+  if (after > before) {
+    money += (after - before) * 100
+    gems += (after - before) * 5
+    levelUp = { level: after, n: (s.levelUp?.n || 0) + 1 }
+  }
+  return { ...s, money, gems, xp, levelUp }
+}
+
+// XP for the existing actions (so everything the player already does now levels them up)
+const XP = {
+  BUY: () => 2,
+  WORK: () => 30,
+  ACTIVITY: (a) => (a.act?.id === 'fish' ? 1 : a.act?.work ? 30 : 10), // casting a line = tiny XP; the catch gives the real XP
+  CATCH: (a) => (a.id === 'bota' ? 2 : 8),
+  SELL_FISH: () => 5,
+  SLEEP: () => 5,
+  MODULE_DONE: () => 25,
+  CLAIM: (a) => 40,
+}
+
+function inner(s, a) {
   // proteksyon: ang state mula sa lumang code (hot reload / lumang save) ay maaaring walang modules / learn
   if (!s.modules || !s.learn) s = { ...s, modules: s.modules || [], learn: s.learn || {} }
   switch (a.type) {
-    case 'LOAD': return {
-      ...initialState, ...a.state,
-      stats: { ...initialState.stats, ...a.state.stats, acts: { ...(a.state.stats?.acts || {}) } },
+    case 'LOAD': {
+      const jobs = a.state.stats?.jobs || 0
+      return {
+        ...initialState, ...a.state,
+        stats: { ...initialState.stats, ...a.state.stats, acts: { ...(a.state.stats?.acts || {}) } },
+        xp: a.state.xp ?? xpToReach(1 + Math.floor(jobs / 3)), // old level = 1 + jobs / 3
+        login: { ...initialState.login, ...(a.state.login || {}) },
+        levelUp: null,
+      }
     }
     case 'NEW': return { ...initialState, player: a.player }
     case 'RESET': return initialState // logout: forget the previous account's state so the next login starts clean
@@ -119,6 +163,72 @@ export function reducer(s, a) {
       if (!m || s.claimed[a.id] || !m.done(s)) return s
       return { ...s, money: s.money + m.reward, claimed: { ...s.claimed, [a.id]: true } }
     }
+    // ---------------- progression ----------------
+    case 'VISIT': return s.visited?.[a.id] ? s : { ...s, visited: { ...s.visited, [a.id]: true } }
+    case 'MAIN_CLAIM': {
+      const q = MAIN_QUESTS[s.mq]
+      if (!q || !q.done(s)) return s
+      return { ...grant(s, q.reward), mq: s.mq + 1 }
+    }
+    case 'DAILY_SYNC': {
+      // a.date = 'YYYY-MM-DD' (local). Makes the day's quests + advances the login streak.
+      let n = s
+      if (s.login.last !== a.date) {
+        const streak = s.login.last === prevDayKey(a.date) ? s.login.streak + 1 : 1
+        n = { ...n, login: { ...s.login, last: a.date, streak } }
+      }
+      if (!s.daily || s.daily.date !== a.date) n = { ...n, daily: genDaily(a.date, n) }
+      return n
+    }
+    case 'LOGIN_CLAIM': {
+      if (!s.login.last || s.login.claimed === s.login.last) return s
+      const r = LOGIN_REWARDS[(s.login.streak - 1) % LOGIN_REWARDS.length]
+      return { ...grant(s, r.reward), login: { ...s.login, claimed: s.login.last } }
+    }
+    case 'DAILY_CLAIM': {
+      const q = DAILY_BY_ID[a.id]
+      if (!q || !s.daily || !s.daily.ids.includes(a.id) || s.daily.claimed[a.id]) return s
+      const [cur, goal] = dailyProgress(s, a.id)
+      if (cur < goal) return s
+      return grant({ ...s, daily: { ...s.daily, claimed: { ...s.daily.claimed, [a.id]: true } } }, q.reward)
+    }
+    case 'DAILY_BONUS': {
+      if (!s.daily || s.daily.bonus || !s.daily.ids.every((id) => s.daily.claimed[id])) return s
+      return grant({ ...s, daily: { ...s.daily, bonus: true } }, DAILY_BONUS)
+    }
+    case 'ACH_CLAIM': {
+      const x = ACH_BY_ID[a.id]
+      if (!x || s.ach[a.id] || !x.done(s)) return s
+      return grant({ ...s, ach: { ...s.ach, [a.id]: true } }, x.reward)
+    }
+    case 'COLLECT': {
+      const c = COLLECT_BY_ID[a.id]
+      if (!c || s.collected[a.id]) return s
+      return grant({ ...s, collected: { ...s.collected, [a.id]: true } }, c.reward)
+    }
+    case 'EVENT_JOIN': {
+      const e = eventState(a.now)
+      if (!e.live || s.events[e.slot]) return s
+      const keep = Object.keys(s.events).map(Number).sort((x, y) => y - x).slice(0, 9)
+      const events = Object.fromEntries(keep.map((k) => [k, s.events[k]]))
+      events[e.slot] = { evId: e.ev.id, base: e.ev.metric(s), claimed: false }
+      return { ...s, events }
+    }
+    case 'EVENT_CLAIM': {
+      const e = s.events[a.slot], ev = e && EVENT_BY_ID[e.evId]
+      if (!e || e.claimed || !ev) return s
+      // you can claim until the end of that 30-minute slot
+      if (Math.floor(a.now / (30 * 60000)) !== Number(a.slot)) return s
+      const [cur, goal] = eventProgress(s, a.slot, e.evId)
+      if (cur < goal) return s
+      return grant({ ...s, events: { ...s.events, [a.slot]: { ...e, claimed: true } } }, ev.reward)
+    }
     default: return s
   }
+}
+
+export function reducer(s, a) {
+  const n = inner(s, a)
+  const xp = XP[a.type]
+  return n !== s && xp ? grant(n, { xp: xp(a, s) }) : n
 }
